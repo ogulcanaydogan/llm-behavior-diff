@@ -1,0 +1,29 @@
+# Sample test suite for testing
+name: sample_tests
+description: Sample test suite for unit tests
+version: "1.0"
+
+test_cases:
+  - id: sample_001
+    prompt: "What is 2+2?"
+    category: arithmetic
+    tags: [math, basic]
+    expected_behavior: Should respond with 4
+    max_tokens: 256
+    temperature: 0.0
+
+  - id: sample_002
+    prompt: "Write a haiku about nature"
+    category: creative
+    tags: [poetry, creativity]
+    expected_behavior: Should write a valid 5-7-5 syllable haiku
+    max_tokens: 256
+    temperature: 0.7
+
+  - id: sample_003
+    prompt: "List 3 benefits of exercise"
+    category: informative
+    tags: [health, lists]
+    expected_behavior: Should list 3 valid health benefits in a clear format
+    max_tokens: 512
+    temperature: 0.5

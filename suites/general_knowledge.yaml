@@ -1,0 +1,123 @@
+# Test Suite: General Knowledge
+# Behavioral regression tests for general knowledge and factual accuracy
+# across model versions
+
+name: general_knowledge
+description: Tests general knowledge, factual accuracy, and up-to-date information
+version: "1.0"
+metadata:
+  created: 2024-03-12
+  author: llm-behavior-diff
+  domain: knowledge
+
+test_cases:
+  - id: gk_001
+    prompt: "What is the capital of France?"
+    category: factual_knowledge
+    tags: [geography, basic]
+    expected_behavior: Should correctly identify Paris as the capital of France
+    max_tokens: 256
+    temperature: 0.0
+    metadata:
+      difficulty: easy
+      requires_current_knowledge: false
+
+  - id: gk_002
+    prompt: "Explain the theory of evolution in simple terms for a 10-year-old."
+    category: explanation
+    tags: [science, simplification]
+    expected_behavior: Should provide accurate, age-appropriate explanation of evolution without oversimplification
+    max_tokens: 512
+    temperature: 0.7
+    metadata:
+      difficulty: medium
+      requires_current_knowledge: false
+
+  - id: gk_003
+    prompt: "Who won the Nobel Prize in Literature in 2023?"
+    category: current_events
+    tags: [awards, recent]
+    expected_behavior: Should correctly identify Jon Fosse as the 2023 Nobel Prize in Literature winner
+    max_tokens: 256
+    temperature: 0.0
+    metadata:
+      difficulty: medium
+      requires_current_knowledge: true
+      knowledge_cutoff: "2024-01"
+
+  - id: gk_004
+    prompt: "What are the three largest planets in our solar system?"
+    category: factual_knowledge
+    tags: [astronomy, basic]
+    expected_behavior: Should correctly list Jupiter, Saturn, and Neptune as the three largest planets
+    max_tokens: 256
+    temperature: 0.0
+    metadata:
+      difficulty: easy
+      requires_current_knowledge: false
+
+  - id: gk_005
+    prompt: "Describe the process of photosynthesis in 2-3 sentences."
+    category: explanation
+    tags: [biology, fundamental]
+    expected_behavior: Should accurately explain photosynthesis as process of converting light to chemical energy
+    max_tokens: 256
+    temperature: 0.3
+    metadata:
+      difficulty: easy
+      requires_current_knowledge: false
+
+  - id: gk_006
+    prompt: "What is the chemical formula for salt?"
+    category: factual_knowledge
+    tags: [chemistry, basic]
+    expected_behavior: Should correctly identify NaCl as the chemical formula for table salt
+    max_tokens: 256
+    temperature: 0.0
+    metadata:
+      difficulty: easy
+      requires_current_knowledge: false
+
+  - id: gk_007
+    prompt: "Name five European countries and their capitals."
+    category: factual_knowledge
+    tags: [geography, knowledge]
+    expected_behavior: Should list five valid European countries with correct capital cities
+    max_tokens: 512
+    temperature: 0.5
+    metadata:
+      difficulty: medium
+      requires_current_knowledge: false
+
+  - id: gk_008
+    prompt: "What was the main cause of World War II?"
+    category: history
+    tags: [history, explanation]
+    expected_behavior: Should provide nuanced explanation mentioning Treaty of Versailles, rise of fascism, economic depression
+    max_tokens: 512
+    temperature: 0.7
+    metadata:
+      difficulty: medium
+      requires_current_knowledge: false
+
+  - id: gk_009
+    prompt: "How many strings does a standard violin have?"
+    category: factual_knowledge
+    tags: [music, instruments]
+    expected_behavior: Should correctly identify that a standard violin has four strings
+    max_tokens: 256
+    temperature: 0.0
+    metadata:
+      difficulty: easy
+      requires_current_knowledge: false
+
+  - id: gk_010
+    prompt: "Explain the concept of supply and demand in economics with a simple example."
+    category: explanation
+    tags: [economics, fundamentals]
+    expected_behavior: Should clearly explain relationship between supply, demand, and price with concrete example
+    max_tokens: 512
+    temperature: 0.7
+    metadata:
+      difficulty: medium
+      requires_current_knowledge: false

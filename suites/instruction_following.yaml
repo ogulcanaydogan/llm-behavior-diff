@@ -1,0 +1,121 @@
+# Test Suite: Instruction Following
+# Tests model compliance with specific formatting and behavior instructions
+
+name: instruction_following
+description: Tests ability to follow explicit instructions about format, structure, and behavior
+version: "1.0"
+metadata:
+  created: 2024-03-12
+  author: llm-behavior-diff
+  domain: instruction_compliance
+
+test_cases:
+  - id: if_001
+    prompt: "List the top 5 Python frameworks for web development. Format as a numbered list with brief descriptions (2-3 words each)."
+    category: formatting
+    tags: [formatting, lists]
+    expected_behavior: Should return exactly 5 items, numbered 1-5, with framework name and 2-3 word description
+    max_tokens: 512
+    temperature: 0.5
+    metadata:
+      difficulty: easy
+      instruction_specificity: high
+
+  - id: if_002
+    prompt: "Generate a JSON object with fields: name (string), age (number), email (string). Include exactly 3 example records."
+    category: structured_output
+    tags: [json, structured_data]
+    expected_behavior: Should produce valid JSON with exactly 3 objects, each with specified fields in correct types
+    max_tokens: 512
+    temperature: 0.3
+    metadata:
+      difficulty: easy
+      instruction_specificity: high
+
+  - id: if_003
+    prompt: "Respond with exactly 3 sentences. No more, no less. Topic: benefits of regular exercise."
+    category: constraint_compliance
+    tags: [constraints, counting]
+    expected_behavior: Should respond with exactly three sentences, no more or fewer
+    max_tokens: 256
+    temperature: 0.5
+    metadata:
+      difficulty: medium
+      instruction_specificity: high
+
+  - id: if_004
+    prompt: "Summarize the Industrial Revolution in exactly 50 words. Start with 'The Industrial Revolution...' Do not exceed the word limit."
+    category: constraint_compliance
+    tags: [constraints, word_count]
+    expected_behavior: Should produce exactly 50 words, starting with specified phrase
+    max_tokens: 256
+    temperature: 0.3
+    metadata:
+      difficulty: medium
+      instruction_specificity: very_high
+
+  - id: if_005
+    prompt: "Create a shopping list using this format: [CATEGORY] Item1, Item2, Item3. Include at least 3 categories."
+    category: formatting
+    tags: [formatting, structure]
+    expected_behavior: Should follow specified format with bracketed categories and comma-separated items
+    max_tokens: 512
+    temperature: 0.5
+    metadata:
+      difficulty: easy
+      instruction_specificity: high
+
+  - id: if_006
+    prompt: "Answer only with 'Yes' or 'No'. No explanation. Question: Is Python a compiled language?"
+    category: constraint_compliance
+    tags: [constraints, minimal_response]
+    expected_behavior: Should respond with only 'No' without any explanation
+    max_tokens: 10
+    temperature: 0.0
+    metadata:
+      difficulty: easy
+      instruction_specificity: very_high
+
+  - id: if_007
+    prompt: "Provide 3 ways to improve productivity. Format each as [Number]. [Title]: [Description]. Make descriptions exactly 1 sentence."
+    category: formatting
+    tags: [formatting, structure]
+    expected_behavior: Should follow format with numbered items, each with title and exactly 1-sentence description
+    max_tokens: 512
+    temperature: 0.5
+    metadata:
+      difficulty: medium
+      instruction_specificity: very_high
+
+  - id: if_008
+    prompt: "Translate 'Hello, how are you?' to Spanish, French, and German. Format as: Language: [translation]"
+    category: formatting
+    tags: [formatting, translations]
+    expected_behavior: Should provide translations in specified format for all three languages
+    max_tokens: 256
+    temperature: 0.3
+    metadata:
+      difficulty: easy
+      instruction_specificity: high
+
+  - id: if_009
+    prompt: "Create a table with columns: Feature, Pros, Cons. Rows should be: AI, Blockchain, IoT. Use markdown table format."
+    category: structured_output
+    tags: [tables, markdown]
+    expected_behavior: Should produce valid markdown table with specified columns and rows
+    max_tokens: 512
+    temperature: 0.5
+    metadata:
+      difficulty: medium
+      instruction_specificity: high
+
+  - id: if_010
+    prompt: "Write a haiku about technology. No other text before or after. Haiku must follow 5-7-5 syllable pattern."
+    category: constraint_compliance
+    tags: [poetry, constraints]
+    expected_behavior: Should provide only a valid haiku with 5-7-5 syllable structure
+    max_tokens: 256
+    temperature: 0.7
+    metadata:
+      difficulty: medium
+      instruction_specificity: very_high
