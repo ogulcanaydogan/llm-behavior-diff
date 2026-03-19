@@ -15,9 +15,9 @@ llm-behavior-diff/
 │   ├── api-reference.md               # Manual Python API reference
 │   ├── release-runbook.md             # Manual release workflows and secret matrix
 │   └── launch-kit/
-│       ├── devto.md                   # dev.to launch article draft
-│       ├── hn.md                      # Show HN post/title draft pack
-│       └── hn-first-comment.md        # HN first-comment draft
+│       ├── devto.md                   # dev.to launch article (current-state copy)
+│       ├── hn.md                      # Show HN post/title launch pack
+│       └── hn-first-comment.md        # HN first-comment launch copy
 │
 ├── src/llm_behavior_diff/             # Main package
 │   ├── __init__.py                    # Package initialization
@@ -30,7 +30,9 @@ llm-behavior-diff/
 │   │   ├── __init__.py
 │   │   ├── base.py                    # Abstract ModelAdapter base class
 │   │   ├── openai_adapter.py          # OpenAI API implementation
-│   │   └── anthropic_adapter.py       # Anthropic API implementation
+│   │   ├── anthropic_adapter.py       # Anthropic API implementation
+│   │   ├── litellm_adapter.py         # LiteLLM-based provider routing adapter
+│   │   └── local_adapter.py           # Local OpenAI-compatible adapter
 │   │
 │   ├── comparators/                   # Behavioral comparison engines
 │   │   ├── __init__.py
@@ -114,6 +116,13 @@ Concrete implementation for OpenAI models (GPT-4o, GPT-4.5, etc.)
 ### src/llm_behavior_diff/adapters/anthropic_adapter.py
 Concrete implementation for Anthropic models (Claude 3 family)
 
+### src/llm_behavior_diff/adapters/litellm_adapter.py
+Concrete implementation for LiteLLM model refs (e.g. `litellm:openai/gpt-4o-mini`)
+
+### src/llm_behavior_diff/adapters/local_adapter.py
+Concrete implementation for local OpenAI-compatible endpoints
+(`LLM_DIFF_LOCAL_BASE_URL`, optional `LLM_DIFF_LOCAL_API_KEY`)
+
 ### src/llm_behavior_diff/comparators/
 Comparator modules used by the deterministic Phase 2 pipeline:
 
@@ -142,7 +151,9 @@ Click-based CLI with three main commands:
 Execution and orchestration engine:
 
 - Loads and validates a single suite YAML
-- Resolves model provider from model name (`gpt-/o1-/o3-` => OpenAI, `claude-` => Anthropic)
+- Resolves model provider from model ids:
+  - legacy prefixes (`gpt-/o1-/o3-` => OpenAI, `claude-` => Anthropic)
+  - explicit refs (`litellm:<model_ref>`, `local:<model_ref>`)
 - Runs test cases concurrently with retry/rate-limit controls
 - Executes comparator-first pipeline (semantic + behavioral + factual + format)
 - Optionally executes LLM-as-judge on semantic-diff tests (`--judge-model`) without overriding final classification
@@ -217,7 +228,9 @@ Supported model strings by provider:
 
 **Anthropic**: `claude-3-opus`, `claude-3-sonnet`, `claude-3-haiku`
 
-**Planned**: LiteLLM/local adapters
+**LiteLLM**: `litellm:<model_ref>` (for example `litellm:openai/gpt-4o-mini`)
+
+**Local OpenAI-compatible**: `local:<model_ref>` (for example `local:llama3.1`)
 
 ## Testing
 
@@ -239,13 +252,14 @@ pytest tests/comparators/test_semantic.py -v
 
 ## Development Workflow
 
-1. **Setup**: `make dev`
+1. **Setup**: `make install-dev`
 2. **Code**: Write/edit files
 3. **Test**: `make test-cov`
 4. **Lint**: `make lint`
 5. **Format**: `make format`
-6. **Check all**: `make check`
-7. **Clean**: `make clean`
+6. **CI parity check**: `make ci-local`
+7. **Release parity check**: `make release-local`
+8. **Clean**: `make clean`
 
 ## Phases & Feature Roadmap
 
@@ -292,7 +306,7 @@ pytest tests/comparators/test_semantic.py -v
 - [x] Contributing guidelines
 - [x] API reference docs
 - [x] Example test suites
-- [x] Blog post/announcement
+- [x] Launch kit (dev.to + HN current-state copy)
 
 ## Extension Points
 
