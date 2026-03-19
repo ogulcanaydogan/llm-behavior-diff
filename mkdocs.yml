@@ -1,0 +1,25 @@
+site_name: llm-behavior-diff
+site_description: Behavioral regression testing for LLM model upgrades
+site_dir: site
+
+theme:
+  name: material
+
+markdown_extensions:
+  - admonition
+  - tables
+  - toc:
+      permalink: true
+
+nav:
+  - Home: index.md
+  - Quick Start: quickstart.md
+  - CLI Reference: cli-reference.md
+  - Suite Reference: suite-reference.md
+  - Architecture: architecture.md
+  - API Reference: api-reference.md
+  - Release Runbook: release-runbook.md
+  - Launch Kit:
+      - dev.to Draft: launch-kit/devto.md
+      - HN Post Draft: launch-kit/hn.md
+      - HN First Comment: launch-kit/hn-first-comment.md

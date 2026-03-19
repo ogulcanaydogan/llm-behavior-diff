@@ -1,0 +1,112 @@
+name: Publish PyPI (Manual)
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: "Publish target repository"
+        required: true
+        default: testpypi
+        type: choice
+        options:
+          - testpypi
+          - pypi
+      version_tag:
+        description: "Optional release tag to verify against pyproject version (example: v0.1.0)"
+        required: false
+        type: string
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: publish-pypi-${{ github.workflow }}-${{ inputs.target }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install build tools
+        run: |
+          python -m pip install --upgrade pip
+          pip install build twine
+
+      - name: Validate optional version tag
+        env:
+          VERSION_TAG: ${{ inputs.version_tag }}
+        run: |
+          python - <<'PY'
+          import os
+          import pathlib
+          import tomllib
+
+          version_tag = os.environ.get("VERSION_TAG", "").strip()
+          if not version_tag:
+              print("No version tag provided; skipping version check.")
+              raise SystemExit(0)
+
+          if not version_tag.startswith("v"):
+              raise SystemExit("version_tag must start with 'v', e.g. v0.1.0")
+
+          pyproject = pathlib.Path("pyproject.toml")
+          with pyproject.open("rb") as f:
+              data = tomllib.load(f)
+          project_version = data["project"]["version"]
+          expected = f"v{project_version}"
+
+          if version_tag != expected:
+              raise SystemExit(
+                  f"version_tag ({version_tag}) does not match pyproject version ({expected})"
+              )
+          print(f"Version tag check passed: {version_tag}")
+          PY
+
+      - name: Build package artifacts
+        run: |
+          python -m build
+
+      - name: Validate package metadata
+        run: |
+          twine check dist/*
+
+      - name: Smoke install wheel and check CLI
+        run: |
+          python -m venv .venv-smoke
+          . .venv-smoke/bin/activate
+          pip install --upgrade pip
+          pip install dist/*.whl
+          llm-diff --help
+
+      - name: Publish to TestPyPI (OIDC)
+        if: ${{ inputs.target == 'testpypi' && secrets.TEST_PYPI_API_TOKEN == '' }}
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          repository-url: https://test.pypi.org/legacy/
+
+      - name: Publish to TestPyPI (token fallback)
+        if: ${{ inputs.target == 'testpypi' && secrets.TEST_PYPI_API_TOKEN != '' }}
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          repository-url: https://test.pypi.org/legacy/
+          password: ${{ secrets.TEST_PYPI_API_TOKEN }}
+
+      - name: Publish to PyPI (OIDC)
+        if: ${{ inputs.target == 'pypi' && secrets.PYPI_API_TOKEN == '' }}
+        uses: pypa/gh-action-pypi-publish@release/v1
+
+      - name: Publish to PyPI (token fallback)
+        if: ${{ inputs.target == 'pypi' && secrets.PYPI_API_TOKEN != '' }}
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          password: ${{ secrets.PYPI_API_TOKEN }}

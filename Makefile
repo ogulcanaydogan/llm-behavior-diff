@@ -1,4 +1,4 @@
-.PHONY: help install dev test lint format check clean docs
+.PHONY: help install dev test lint format check clean docs docs-serve docs-check
 
 help:
 	@echo "llm-behavior-diff development commands"
@@ -11,7 +11,9 @@ help:
 	@echo "  make format    - Format code with black"
 	@echo "  make check     - Run all checks (lint, format, test)"
 	@echo "  make clean     - Remove build artifacts"
-	@echo "  make docs      - Build documentation"
+	@echo "  make docs      - Build docs with mkdocs --strict"
+	@echo "  make docs-serve - Serve docs locally via mkdocs"
+	@echo "  make docs-check - Validate docs build in strict mode"
 
 install:
 	pip install -e .
@@ -43,6 +45,12 @@ clean:
 	rm -rf build/ dist/ *.egg-info htmlcov/ .mypy_cache/ .pytest_cache/
 
 docs:
-	cd docs && make html
+	mkdocs build --strict
+
+docs-serve:
+	mkdocs serve
+
+docs-check:
+	mkdocs build --strict
 
 .DEFAULT_GOAL := help

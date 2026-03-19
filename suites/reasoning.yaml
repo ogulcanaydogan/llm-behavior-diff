@@ -1,0 +1,121 @@
+# Test Suite: Reasoning
+# Tests multi-step arithmetic, logical inference, planning, and consistency.
+
+name: reasoning
+description: Tests multi-step reasoning quality across arithmetic, logic, scheduling, and counterfactual consistency
+version: "1.0"
+metadata:
+  created: 2026-03-18
+  author: llm-behavior-diff
+  domain: reasoning
+
+test_cases:
+  - id: rs_001
+    prompt: "A jacket costs $120. It gets a 25% discount, then 10% sales tax is applied. What is the final price? Show concise steps."
+    category: arithmetic_reasoning
+    tags: [math, multi_step, percentages]
+    expected_behavior: Must apply discount before tax, compute intermediate values correctly, and return a numerically correct final price
+    max_tokens: 256
+    temperature: 0.1
+    metadata:
+      difficulty: easy
+      reasoning_type: multi_step_arithmetic
+
+  - id: rs_002
+    prompt: "Three workers finish a task in 6, 8, and 12 hours respectively. If they work together, how long does the task take?"
+    category: arithmetic_reasoning
+    tags: [math, rates, work_problem]
+    expected_behavior: Must combine work rates correctly, invert total rate, and provide correct completion time
+    max_tokens: 256
+    temperature: 0.1
+    metadata:
+      difficulty: medium
+      reasoning_type: multi_step_arithmetic
+
+  - id: rs_003
+    prompt: "A train leaves at 09:35 and travels for 2 hours 47 minutes. It then stops for 18 minutes and travels 1 hour 22 minutes more. What time does it arrive?"
+    category: arithmetic_reasoning
+    tags: [math, time_calculation, multi_step]
+    expected_behavior: Must add all durations accurately and provide a correct arrival time with clear intermediate arithmetic
+    max_tokens: 256
+    temperature: 0.1
+    metadata:
+      difficulty: medium
+      reasoning_type: multi_step_arithmetic
+
+  - id: rs_004
+    prompt: "In a village, truth-tellers always tell the truth and liars always lie. Alex says, 'Blair is a liar.' Blair says, 'Alex and I are different types.' Determine who is a truth-teller and who is a liar."
+    category: logical_inference
+    tags: [logic, truth_lie, consistency]
+    expected_behavior: Must test both assignments, enforce consistency, and return a logically valid final assignment
+    max_tokens: 384
+    temperature: 0.2
+    metadata:
+      difficulty: medium
+      reasoning_type: logic
+
+  - id: rs_005
+    prompt: "Exactly one of these statements is true: (1) The key is in drawer A. (2) The key is in drawer B. (3) The key is not in drawer A. Where is the key?"
+    category: logical_inference
+    tags: [logic, constraints, deduction]
+    expected_behavior: Must evaluate statement consistency under exactly-one-true constraint and identify the only valid drawer
+    max_tokens: 256
+    temperature: 0.2
+    metadata:
+      difficulty: easy
+      reasoning_type: logic
+
+  - id: rs_006
+    prompt: "All robots are machines. Some machines are solar-powered. Can we conclude that some robots are solar-powered? Explain briefly."
+    category: logical_inference
+    tags: [logic, syllogism, validity]
+    expected_behavior: Must reject invalid conclusion, explain existential gap, and avoid overclaiming
+    max_tokens: 256
+    temperature: 0.2
+    metadata:
+      difficulty: easy
+      reasoning_type: logic
+
+  - id: rs_007
+    prompt: "Schedule a 45-minute meeting for Alice, Bob, and Carol. Alice is free 09:00-11:00. Bob is free 10:15-12:00. Carol is free 10:00-10:50 and 11:10-12:00. What is the earliest feasible slot?"
+    category: planning
+    tags: [scheduling, constraints, planning]
+    expected_behavior: Must intersect all availability windows correctly and return the earliest valid 45-minute slot
+    max_tokens: 320
+    temperature: 0.2
+    metadata:
+      difficulty: medium
+      reasoning_type: scheduling
+
+  - id: rs_008
+    prompt: "Tasks and durations: A(2h), B(1h), C(3h), D(2h). Dependencies: B after A, C after A, D after both B and C. What is the minimum completion time and one valid schedule?"
+    category: planning
+    tags: [planning, dependencies, scheduling]
+    expected_behavior: Must respect dependencies, compute critical path duration correctly, and provide a dependency-valid schedule
+    max_tokens: 384
+    temperature: 0.2
+    metadata:
+      difficulty: medium
+      reasoning_type: scheduling
+
+  - id: rs_009
+    prompt: "Counterfactual check: If all birds can fly and penguins are birds, what follows? Then update the rule: some birds cannot fly. Which earlier conclusion changes and why?"
+    category: consistency_check
+    tags: [counterfactual, logic, consistency]
+    expected_behavior: Must state initial implication, revise conclusion after rule change, and explain which inference no longer holds
+    max_tokens: 384
+    temperature: 0.2
+    metadata:
+      difficulty: medium
+      reasoning_type: counterfactual
+
+  - id: rs_010
+    prompt: "Suppose policy X says 'Every request requires approval.' Under this rule, request R is denied because no approval exists. Now change policy to 'Only high-risk requests require approval,' and R is low-risk. Should R still be denied?"
+    category: consistency_check
+    tags: [counterfactual, policy_reasoning, consistency]
+    expected_behavior: Must update decision under changed rule, conclude low-risk R is not denied for missing approval, and justify the transition
+    max_tokens: 320
+    temperature: 0.2
+    metadata:
+      difficulty: easy
+      reasoning_type: counterfactual

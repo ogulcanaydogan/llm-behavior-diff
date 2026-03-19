@@ -28,8 +28,8 @@ class AnthropicAdapter(ModelAdapter):
         super().__init__(model, config)
         try:
             from anthropic import AsyncAnthropic
-        except ImportError:
-            raise ImportError("anthropic package required. Install with: pip install anthropic")
+        except ImportError as exc:
+            raise ImportError("anthropic package required. Install with: pip install anthropic") from exc
 
         api_key = self.config.api_key or None  # Uses ANTHROPIC_API_KEY env var by default
         self.client = AsyncAnthropic(api_key=api_key)
@@ -69,6 +69,8 @@ class AnthropicAdapter(ModelAdapter):
             text = response.content[0].text if response.content else ""
 
             metadata = {
+                "input_tokens": response.usage.input_tokens,
+                "output_tokens": response.usage.output_tokens,
                 "tokens_used": response.usage.input_tokens + response.usage.output_tokens,
                 "latency_ms": latency_ms,
                 "stop_reason": response.stop_reason,
@@ -77,8 +79,8 @@ class AnthropicAdapter(ModelAdapter):
 
             return text, metadata
 
-        except Exception as e:
-            raise RuntimeError(f"Anthropic API error: {str(e)}")
+        except Exception as exc:
+            raise RuntimeError(f"Anthropic API error: {str(exc)}") from exc
 
     async def health_check(self) -> bool:
         """

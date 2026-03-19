@@ -25,7 +25,7 @@ class ModelAdapter(ABC):
     Abstract base class for LLM model adapters.
 
     Provides unified interface for querying different LLM providers
-    (OpenAI, Anthropic, LiteLLM, local models, etc.)
+    (OpenAI and Anthropic today; more providers planned).
     """
 
     def __init__(self, model: str, config: Optional[ModelAdapterConfig] = None):

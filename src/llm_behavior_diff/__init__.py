@@ -8,6 +8,7 @@ behavioral, and factual differences. Essential for enterprise MLOps.
 __version__ = "0.1.0"
 __author__ = "LLM Behavior Diff Contributors"
 
+from .runner import BehaviorDiffRunner, load_test_suite
 from .schema import (
     BehaviorCategory,
     BehaviorReport,
@@ -24,4 +25,6 @@ __all__ = [
     "DiffResult",
     "BehaviorCategory",
     "BehaviorReport",
+    "BehaviorDiffRunner",
+    "load_test_suite",
 ]

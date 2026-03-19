@@ -1,138 +1,48 @@
 # llm-behavior-diff Documentation
 
-## Overview
+`llm-behavior-diff` helps you compare two LLM versions on the same suite and detect behavioral regressions before production upgrades.
 
-`llm-behavior-diff` is a behavioral regression testing tool for LLM model upgrades. It compares two model versions on the same test suite and produces detailed semantic diff reports.
+## Documentation Map
 
-## Quick Links
-
-- [Installation](installation.md)
 - [Quick Start](quickstart.md)
-- [CLI Reference](cli.md)
-- [Test Suites](test-suites.md)
+- [CLI Reference](cli-reference.md)
+- [Suite Reference](suite-reference.md)
 - [Architecture](architecture.md)
-- [API Reference](api.md)
-- [Contributing](../CONTRIBUTING.md)
+- [API Reference (Manual)](api-reference.md)
+- [Release Runbook](release-runbook.md)
+- [Launch Kit (dev.to + HN)](launch-kit/devto.md)
 
-## What Problem Does It Solve?
+## What You Can Do
 
-When you upgrade from GPT-4o to GPT-4.5, or Claude 3 Sonnet to Opus, you need to know:
+- Run deterministic behavior comparisons (`semantic`, `factual`, `format`, `behavioral`)
+- Aggregate regressions/improvements with a fixed precedence policy
+- Track token usage and estimated cost metadata
+- Generate table/json/html/markdown reports
+- Enforce upgrade gates in CI using built-in suites
 
-1. What changed in model behavior?
-2. Are there regressions in reasoning, safety, or factual accuracy?
-3. What improved?
-4. Is it safe to upgrade in production?
-
-Traditional testing can't answer these questions — you need semantic diff analysis.
-
-## Key Features
-
-- **Multi-provider support**: OpenAI, Anthropic, LiteLLM, local models
-- **Semantic analysis**: Detects meaningful differences, not just string differences
-- **Behavioral categories**: Classifies changes (tone, knowledge, safety, etc.)
-- **Aggregated reports**: JSON, HTML, Markdown, terminal output
-- **Concurrent testing**: Run tests in parallel for speed
-- **Cost tracking**: Monitor API usage across comparisons
-
-## Example
+## Fast Example
 
 ```bash
-# Compare GPT-4o to GPT-4.5
 llm-diff run \
   --model-a gpt-4o \
   --model-b gpt-4.5 \
   --suite suites/general_knowledge.yaml \
   --output report.json
 
-# Generate HTML report
-llm-diff report report.json --format html -o report.html
+llm-diff report report.json --format table
 ```
 
-Result:
-```
-Total Tests: 50
-Regressions: 2 (4.0%)
-Improvements: 4 (8.0%)
+## Built-In Suites
 
-Top Regressions:
-  - reasoning_change: 1
-  - instruction_following: 1
-```
+- `suites/general_knowledge.yaml`
+- `suites/instruction_following.yaml`
+- `suites/safety_boundaries.yaml`
+- `suites/coding_tasks.yaml`
+- `suites/reasoning.yaml`
 
-## Architecture
+## Notes
 
-```
-┌─────────────────┐
-│  Test Suite     │
-│  (YAML)         │
-└────────┬────────┘
-         │
-         ▼
-┌─────────────────────────────┐
-│   Test Runner               │
-│   - Load suite              │
-│   - Run in parallel         │
-│   - Call adapters           │
-└────────┬────────────────────┘
-         │
-    ┌────┴─────┐
-    │           │
-    ▼           ▼
-┌──────────┐ ┌──────────────┐
-│ Model A  │ │  Model B     │
-│ Adapter  │ │  Adapter     │
-└────┬─────┘ └──────┬───────┘
-     │              │
-     ▼              ▼
- ┌──────────────────────┐
- │  Get Responses       │
- │  (OpenAI, etc.)      │
- └──────┬───────────────┘
-        │
-        ▼
- ┌────────────────────────────────────┐
- │  Comparators                       │
- │  - Semantic (embeddings)           │
- │  - Behavioral (LLM-as-judge)       │
- │  - Factual (contradiction detect)  │
- │  - Format (structure drift)        │
- └──────┬─────────────────────────────┘
-        │
-        ▼
- ┌────────────────────────────────────┐
- │  Aggregator                        │
- │  - Combine results                 │
- │  - Calculate stats                 │
- │  - Generate report                 │
- └──────┬─────────────────────────────┘
-        │
-        ▼
- ┌────────────────────────────────────┐
- │  Report Generator                  │
- │  - JSON, HTML, Markdown, Terminal  │
- └────────────────────────────────────┘
-```
-
-## Behavior Categories
-
-When a difference is detected, it's classified into one of these categories:
-
-| Category | Description |
-|----------|-------------|
-| SEMANTIC | Same meaning, different wording |
-| TONE_SHIFT | Change in formality or tone |
-| KNOWLEDGE_CHANGE | New or lost knowledge |
-| SAFETY_BOUNDARY | Changed refusal/safety behavior |
-| REASONING_CHANGE | Different reasoning approach |
-| INSTRUCTION_FOLLOWING | Changed compliance |
-| FORMAT_CHANGE | Output structure changed |
-| HALLUCINATION_NEW | New factual errors |
-| HALLUCINATION_FIXED | Fixed factual errors |
-
-## Next Steps
-
-1. [Install](installation.md) the package
-2. Follow the [Quick Start](quickstart.md) guide
-3. Create your first test suite
-4. Run your first comparison
-5. Explore [advanced features](test-suites.md)
+- Current provider resolver supports OpenAI (`gpt-*`, `o1-*`, `o3-*`) and Anthropic (`claude-*`).
+- One `--suite` file is processed per `run` command.
+- Optional LLM-as-judge is implemented via `--judge-model` as metadata-only signal.
+- Bootstrap statistical significance reporting is implemented in run metadata and compare output.

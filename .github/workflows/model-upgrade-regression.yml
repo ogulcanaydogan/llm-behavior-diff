@@ -1,0 +1,211 @@
+name: Model Upgrade Regression Gate
+
+on:
+  workflow_dispatch:
+    inputs:
+      model_a:
+        description: "Baseline model (A)"
+        required: true
+        default: gpt-4o
+        type: string
+      model_b:
+        description: "Candidate model (B)"
+        required: true
+        default: gpt-4.5
+        type: string
+      suite_list:
+        description: "Optional comma-separated suite paths (defaults to all built-in suites)"
+        required: false
+        type: string
+      max_workers:
+        description: "Max workers for llm-diff run"
+        required: false
+        default: 4
+        type: number
+
+  workflow_call:
+    inputs:
+      model_a:
+        required: true
+        type: string
+      model_b:
+        required: true
+        type: string
+      suite_list:
+        required: false
+        type: string
+      max_workers:
+        required: false
+        type: number
+        default: 4
+    secrets:
+      OPENAI_API_KEY:
+        required: false
+      ANTHROPIC_API_KEY:
+        required: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: model-upgrade-regression-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  regression-gate:
+    runs-on: ubuntu-latest
+    env:
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      MODEL_A: ${{ inputs.model_a }}
+      MODEL_B: ${{ inputs.model_b }}
+      SUITE_LIST: ${{ inputs.suite_list }}
+      MAX_WORKERS: ${{ inputs.max_workers }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Validate model provider secrets
+        run: |
+          python - <<'PY'
+          import os
+
+          model_a = os.environ["MODEL_A"].strip().lower()
+          model_b = os.environ["MODEL_B"].strip().lower()
+          openai_key = os.environ.get("OPENAI_API_KEY", "").strip()
+          anthropic_key = os.environ.get("ANTHROPIC_API_KEY", "").strip()
+
+          models = [model_a, model_b]
+          needs_openai = any(m.startswith(("gpt-", "o1-", "o3-")) for m in models)
+          needs_anthropic = any(m.startswith("claude-") for m in models)
+
+          if needs_openai and not openai_key:
+              raise SystemExit("OPENAI_API_KEY is required for selected model(s).")
+          if needs_anthropic and not anthropic_key:
+              raise SystemExit("ANTHROPIC_API_KEY is required for selected model(s).")
+
+          print("Model secret validation passed.")
+          PY
+
+      - name: Resolve suite list
+        run: |
+          if [ -n "$SUITE_LIST" ]; then
+            : > suites_to_run.txt
+            IFS=',' read -ra PARTS <<< "$SUITE_LIST"
+            for part in "${PARTS[@]}"; do
+              suite="$(echo "$part" | xargs)"
+              if [ -n "$suite" ]; then
+                echo "$suite" >> suites_to_run.txt
+              fi
+            done
+          else
+            printf '%s\n' \
+              "suites/general_knowledge.yaml" \
+              "suites/instruction_following.yaml" \
+              "suites/safety_boundaries.yaml" \
+              "suites/coding_tasks.yaml" \
+              "suites/reasoning.yaml" \
+              > suites_to_run.txt
+          fi
+
+          echo "Suites to run:"
+          cat suites_to_run.txt
+
+      - name: Run behavioral diff suites
+        run: |
+          mkdir -p artifacts/reports
+
+          while IFS= read -r suite; do
+            [ -z "$suite" ] && continue
+            if [ ! -f "$suite" ]; then
+              echo "Suite not found: $suite"
+              exit 1
+            fi
+
+            suite_name="$(basename "$suite" .yaml)"
+            output_file="artifacts/reports/${suite_name}.json"
+
+            llm-diff run \
+              --model-a "$MODEL_A" \
+              --model-b "$MODEL_B" \
+              --suite "$suite" \
+              --max-workers "$MAX_WORKERS" \
+              --output "$output_file"
+          done < suites_to_run.txt
+
+      - name: Upload suite reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: model-upgrade-reports-${{ github.run_id }}
+          path: artifacts/reports/
+          if-no-files-found: error
+
+      - name: Aggregate regressions and apply gate
+        run: |
+          python - <<'PY'
+          import glob
+          import json
+          import os
+
+          report_paths = sorted(glob.glob("artifacts/reports/*.json"))
+          if not report_paths:
+              raise SystemExit("No reports found to evaluate regression gate.")
+
+          total_tests = 0
+          total_regressions = 0
+          total_improvements = 0
+          rows = []
+
+          for path in report_paths:
+              with open(path, encoding="utf-8") as f:
+                  report = json.load(f)
+              suite = report.get("suite_name", os.path.basename(path))
+              tests = int(report.get("total_tests", 0) or 0)
+              regressions = int(report.get("regressions", 0) or 0)
+              improvements = int(report.get("improvements", 0) or 0)
+
+              total_tests += tests
+              total_regressions += regressions
+              total_improvements += improvements
+              rows.append((suite, tests, regressions, improvements))
+
+          summary_lines = [
+              "## Model Upgrade Regression Gate",
+              "",
+              f"- Model A: `{os.environ.get('MODEL_A', '')}`",
+              f"- Model B: `{os.environ.get('MODEL_B', '')}`",
+              f"- Total Tests: {total_tests}",
+              f"- Total Regressions: {total_regressions}",
+              f"- Total Improvements: {total_improvements}",
+              "",
+              "| Suite | Tests | Regressions | Improvements |",
+              "| --- | ---: | ---: | ---: |",
+          ]
+
+          for suite, tests, regressions, improvements in rows:
+              summary_lines.append(
+                  f"| {suite} | {tests} | {regressions} | {improvements} |"
+              )
+
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as f:
+              f.write("\n".join(summary_lines) + "\n")
+
+          if total_regressions > 0:
+              raise SystemExit(
+                  f"Regression gate failed: detected {total_regressions} regression(s)."
+              )
+
+          print("Regression gate passed with zero regressions.")
+          PY

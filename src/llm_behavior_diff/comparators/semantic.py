@@ -35,10 +35,10 @@ class SemanticComparator:
                 from sentence_transformers import SentenceTransformer
 
                 self.model = SentenceTransformer(self.model_name)
-            except ImportError:
+            except ImportError as exc:
                 raise ImportError(
                     "sentence-transformers required. Install with: pip install sentence-transformers"
-                )
+                ) from exc
 
     def compare(self, text_a: str, text_b: str) -> Tuple[float, bool]:
         """
@@ -52,6 +52,9 @@ class SemanticComparator:
             Tuple of (similarity_score, are_semantically_same)
             Similarity score is 0-1, are_semantically_same is True if >= threshold
         """
+        if text_a == text_b:
+            return 1.0, True
+
         if not text_a or not text_b:
             return 0.0, text_a == text_b
 
@@ -63,8 +66,8 @@ class SemanticComparator:
         embedding_b = embeddings[1]
 
         # Cosine similarity
-        similarity = float(np.dot(embedding_a, embedding_b) /
-                          (np.linalg.norm(embedding_a) * np.linalg.norm(embedding_b)))
+        denominator = np.linalg.norm(embedding_a) * np.linalg.norm(embedding_b)
+        similarity = 0.0 if denominator == 0 else float(np.dot(embedding_a, embedding_b) / denominator)
 
         # Clamp to [0, 1]
         similarity = max(0.0, min(1.0, similarity))

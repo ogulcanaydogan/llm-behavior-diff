@@ -1,0 +1,83 @@
+name: Docker Image
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      push_image:
+        description: "Push image to GHCR"
+        required: true
+        default: false
+        type: boolean
+      version_tag:
+        description: "Optional release tag for pushed image (example: v0.1.0)"
+        required: false
+        type: string
+      set_latest:
+        description: "Also push latest tag (only when push_image=true)"
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: docker-image-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  docker-build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Compute image vars
+        id: vars
+        run: |
+          IMAGE_REPO="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/llm-behavior-diff"
+          SHORT_SHA="${GITHUB_SHA::7}"
+          echo "image_repo=${IMAGE_REPO}" >> "$GITHUB_OUTPUT"
+          echo "short_sha=${SHORT_SHA}" >> "$GITHUB_OUTPUT"
+
+      - name: Build Docker image
+        run: |
+          docker build -t "${{ steps.vars.outputs.image_repo }}:sha-${{ steps.vars.outputs.short_sha }}" .
+
+      - name: Smoke test container CLI
+        run: |
+          docker run --rm "${{ steps.vars.outputs.image_repo }}:sha-${{ steps.vars.outputs.short_sha }}" --help
+
+      - name: Login to GHCR
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.push_image }}
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Push tagged image to GHCR
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.push_image }}
+        env:
+          IMAGE_REPO: ${{ steps.vars.outputs.image_repo }}
+          SHORT_SHA: ${{ steps.vars.outputs.short_sha }}
+          VERSION_TAG: ${{ inputs.version_tag }}
+          SET_LATEST: ${{ inputs.set_latest }}
+        run: |
+          if [ -n "$VERSION_TAG" ]; then
+            TAG="$VERSION_TAG"
+          else
+            TAG="sha-$SHORT_SHA"
+          fi
+
+          docker tag "$IMAGE_REPO:sha-$SHORT_SHA" "$IMAGE_REPO:$TAG"
+          docker push "$IMAGE_REPO:$TAG"
+
+          if [ "$SET_LATEST" = "true" ]; then
+            docker tag "$IMAGE_REPO:sha-$SHORT_SHA" "$IMAGE_REPO:latest"
+            docker push "$IMAGE_REPO:latest"
+          fi

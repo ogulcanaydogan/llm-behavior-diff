@@ -1,15 +1,17 @@
 """Tests for schema definitions."""
 
-import pytest
-from datetime import datetime
 
 from llm_behavior_diff.schema import (
-    TestCase,
-    TestSuite,
-    ModelResponse,
-    DiffResult,
     BehaviorCategory,
     BehaviorReport,
+    DiffResult,
+    ModelResponse,
+)
+from llm_behavior_diff.schema import (
+    TestCase as SchemaTestCase,
+)
+from llm_behavior_diff.schema import (
+    TestSuite as SchemaTestSuite,
 )
 
 
@@ -18,7 +20,7 @@ class TestTestCase:
 
     def test_test_case_creation(self):
         """Test creating a TestCase."""
-        tc = TestCase(
+        tc = SchemaTestCase(
             id="test_001",
             prompt="What is 2+2?",
             category="math",
@@ -30,7 +32,7 @@ class TestTestCase:
 
     def test_test_case_with_tags(self):
         """Test TestCase with tags."""
-        tc = TestCase(
+        tc = SchemaTestCase(
             id="test_002",
             prompt="Hello",
             category="greeting",
@@ -46,11 +48,11 @@ class TestTestSuite:
 
     def test_suite_creation(self):
         """Test creating a TestSuite."""
-        suite = TestSuite(
+        suite = SchemaTestSuite(
             name="math_basics",
             description="Basic arithmetic tests",
             test_cases=[
-                TestCase(
+                SchemaTestCase(
                     id="q1",
                     prompt="2+2=?",
                     category="arithmetic",
@@ -63,11 +65,11 @@ class TestTestSuite:
 
     def test_suite_length(self):
         """Test suite length method."""
-        suite = TestSuite(
+        suite = SchemaTestSuite(
             name="test",
             description="Test suite",
             test_cases=[
-                TestCase(
+                SchemaTestCase(
                     id=f"test_{i}",
                     prompt=f"Prompt {i}",
                     category="test",

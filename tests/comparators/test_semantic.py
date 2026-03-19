@@ -1,6 +1,8 @@
 """Tests for semantic comparator."""
 
+import numpy as np
 import pytest
+
 from llm_behavior_diff.comparators.semantic import SemanticComparator
 
 
@@ -9,8 +11,28 @@ class TestSemanticComparator:
 
     @pytest.fixture
     def comparator(self):
-        """Create a SemanticComparator instance."""
-        return SemanticComparator(threshold=0.8)
+        """Create a SemanticComparator instance with an in-memory embedding model."""
+
+        class DummyEmbeddingModel:
+            def encode(self, texts):
+                vectors = []
+                for text in texts:
+                    tokens = text.lower().split()
+                    vectors.append(
+                        np.array(
+                            [
+                                float(len(tokens)),
+                                float(len(set(tokens))),
+                                float(sum(ord(char) for char in text) % 997),
+                                float(sum(char in "aeiou" for char in text.lower())),
+                            ]
+                        )
+                    )
+                return np.vstack(vectors)
+
+        comp = SemanticComparator(threshold=0.8)
+        comp.model = DummyEmbeddingModel()
+        return comp
 
     def test_exact_match(self, comparator):
         """Test exact string match."""

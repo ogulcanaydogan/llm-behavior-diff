@@ -7,13 +7,24 @@ Complete overview of the `llm-behavior-diff` repository.
 ```
 llm-behavior-diff/
 ├── docs/                               # Documentation
-│   ├── index.md                       # Main documentation
-│   └── quickstart.md                  # Quick start guide
+│   ├── index.md                       # Documentation home
+│   ├── quickstart.md                  # Quick start guide
+│   ├── cli-reference.md               # CLI command and flag reference
+│   ├── suite-reference.md             # Suite YAML schema and authoring guide
+│   ├── architecture.md                # Runtime and comparator pipeline architecture
+│   ├── api-reference.md               # Manual Python API reference
+│   ├── release-runbook.md             # Manual release workflows and secret matrix
+│   └── launch-kit/
+│       ├── devto.md                   # dev.to launch article draft
+│       ├── hn.md                      # Show HN post/title draft pack
+│       └── hn-first-comment.md        # HN first-comment draft
 │
 ├── src/llm_behavior_diff/             # Main package
 │   ├── __init__.py                    # Package initialization
 │   ├── schema.py                      # Pydantic models (TestCase, DiffResult, etc.)
 │   ├── cli.py                         # Click CLI commands
+│   ├── runner.py                      # Suite loader, execution, retries/rate-limit, comparator orchestration
+│   ├── aggregator.py                  # Comparator precedence + final category aggregation
 │   │
 │   ├── adapters/                      # Model provider adapters
 │   │   ├── __init__.py
@@ -23,7 +34,12 @@ llm-behavior-diff/
 │   │
 │   ├── comparators/                   # Behavioral comparison engines
 │   │   ├── __init__.py
-│   │   └── semantic.py                # Semantic similarity using embeddings
+│   │   ├── base.py                    # Shared comparator result contract + helpers
+│   │   ├── semantic.py                # Semantic similarity using embeddings
+│   │   ├── behavioral.py              # Deterministic expected-behavior coverage comparator
+│   │   ├── factual.py                 # Deterministic factual/hallucination comparator
+│   │   ├── format.py                  # Deterministic format/instruction comparator
+│   │   └── judge.py                   # Optional LLM-as-judge comparator (metadata-only)
 │   │
 │   └── reports/                       # Report generation
 │       └── __init__.py
@@ -31,23 +47,37 @@ llm-behavior-diff/
 ├── tests/                             # Test suite
 │   ├── __init__.py
 │   ├── test_schema.py                 # Schema validation tests
+│   ├── test_runner.py                 # Runner, resolver, aggregation tests
+│   ├── test_cli.py                    # CLI run/compare tests
 │   ├── comparators/
 │   │   ├── __init__.py
-│   │   └── test_semantic.py           # Semantic comparator tests
+│   │   ├── test_semantic.py           # Semantic comparator tests
+│   │   ├── test_behavioral.py         # Behavioral comparator tests
+│   │   ├── test_factual.py            # Factual comparator tests
+│   │   ├── test_format.py             # Format comparator tests
+│   │   └── test_judge.py              # Judge comparator tests
 │   └── fixtures/
 │       ├── __init__.py
 │       └── sample_suite.yaml          # Sample test suite for testing
 │
 ├── suites/                            # Pre-built test suites
 │   ├── general_knowledge.yaml         # 10 factual accuracy tests
-│   └── instruction_following.yaml     # 10 instruction compliance tests
+│   ├── instruction_following.yaml     # 10 instruction compliance tests
+│   ├── safety_boundaries.yaml         # 10 refusal/safety boundary tests
+│   ├── coding_tasks.yaml              # 10 coding behavior tests
+│   └── reasoning.yaml                 # 10 reasoning consistency tests
 │
 ├── .github/
 │   └── workflows/
-│       └── ci.yml                     # GitHub Actions CI/CD
+│       ├── ci.yml                     # Core quality CI (master push + PR)
+│       ├── release-check.yml          # Build/twine/smoke release readiness check (no publish)
+│       ├── publish-pypi.yml           # Manual PyPI/TestPyPI publish workflow
+│       ├── docker-image.yml           # Docker build/smoke and optional GHCR push
+│       └── model-upgrade-regression.yml # Regression gate for model upgrade runs
 │
 ├── Dockerfile                         # Container image definition
 ├── Makefile                           # Development commands
+├── mkdocs.yml                         # MkDocs site configuration and navigation
 ├── pyproject.toml                     # Python project configuration
 ├── README.md                          # User-facing readme
 ├── ROADMAP.md                         # Development roadmap
@@ -84,12 +114,22 @@ Concrete implementation for OpenAI models (GPT-4o, GPT-4.5, etc.)
 ### src/llm_behavior_diff/adapters/anthropic_adapter.py
 Concrete implementation for Anthropic models (Claude 3 family)
 
-### src/llm_behavior_diff/comparators/semantic.py
-Semantic similarity comparison using sentence embeddings:
+### src/llm_behavior_diff/comparators/
+Comparator modules used by the deterministic Phase 2 pipeline:
 
-- Uses `sentence-transformers`
-- Configurable similarity threshold
-- Returns similarity score (0-1) and boolean match
+- `semantic.py`: embedding-based semantic equivalence check
+- `behavioral.py`: expected-behavior coverage deltas
+- `factual.py`: factual/current/history-sensitive hallucination/knowledge rules
+- `format.py`: structural compliance checks (JSON, markdown table, count, yes/no)
+- `judge.py`: optional LLM-as-judge metadata signal (semantic-diff only, non-fatal)
+- `base.py`: common `ComparatorResult` contract and helper scoring functions
+
+### src/llm_behavior_diff/aggregator.py
+Comparator-first aggregation logic:
+
+- Applies precedence: semantic-same > factual > format > behavioral > unknown
+- Produces final category/regression/improvement/confidence/explanation
+- Writes comparator decision summaries for report metadata
 
 ### src/llm_behavior_diff/cli.py
 Click-based CLI with three main commands:
@@ -98,18 +138,38 @@ Click-based CLI with three main commands:
 2. `llm-diff report` - Generate reports (json, html, markdown, table)
 3. `llm-diff compare` - Compare two reports
 
+### src/llm_behavior_diff/runner.py
+Execution and orchestration engine:
+
+- Loads and validates a single suite YAML
+- Resolves model provider from model name (`gpt-/o1-/o3-` => OpenAI, `claude-` => Anthropic)
+- Runs test cases concurrently with retry/rate-limit controls
+- Executes comparator-first pipeline (semantic + behavioral + factual + format)
+- Optionally executes LLM-as-judge on semantic-diff tests (`--judge-model`) without overriding final classification
+- Builds aggregated `BehaviorReport` with token/cost/comparator metadata
+
 ### pyproject.toml
 Python package configuration:
 
 - Entry point: `llm-diff` command
 - Dependencies: pydantic, click, rich, openai, anthropic, litellm, sentence-transformers
-- Optional dev dependencies for testing and documentation
+- Optional dev dependencies for testing and MkDocs documentation
 - Build system configuration
+
+### mkdocs.yml
+Documentation site configuration:
+
+- Material theme
+- Navigation for docs home, references, architecture, and release runbook
+- Strict build mode compatibility
 
 ### tests/
 Test coverage for all modules:
 
 - `test_schema.py`: Validates all Pydantic models
+- `test_runner.py`: Tests suite loading, provider resolution, heuristics, and aggregation
+- `test_cli.py`: Tests dry-run, run output, and compare output paths
+- `test_suites.py`: Validates built-in suite YAML files and dry-run smoke checks
 - `test_semantic.py`: Tests semantic comparator
 - `sample_suite.yaml`: Example test suite for integration testing
 
@@ -118,7 +178,9 @@ Pre-built test suites organized by domain:
 
 - `general_knowledge.yaml`: 10 factual knowledge tests
 - `instruction_following.yaml`: 10 instruction compliance tests
-- Additional suites planned (safety, coding, reasoning)
+- `safety_boundaries.yaml`: 10 refusal and safety-boundary tests
+- `coding_tasks.yaml`: 10 coding task tests
+- `reasoning.yaml`: 10 multi-step reasoning tests
 
 ## Data Flow
 
@@ -130,9 +192,11 @@ Pre-built test suites organized by domain:
    - Model B adapter.generate(prompt) → response_b
 4. Comparators analyze responses:
    - SemanticComparator: Check semantic equivalence
-   - BehavioralComparator: LLM-as-judge evaluation
-   - FactualComparator: Detect contradictions
-5. Aggregator combines results into BehaviorReport
+   - BehavioralComparator: expected-behavior coverage delta
+   - FactualComparator: deterministic factual/hallucination rules
+   - FormatComparator: deterministic structural constraint checks
+   - JudgeComparator (optional): metadata-only A/B/TIE signal on semantic diffs
+5. Aggregator combines results into BehaviorReport with fixed precedence
 6. Reporter formats output (JSON, HTML, Markdown, Table)
 7. User reviews report and makes deployment decision
 ```
@@ -153,7 +217,7 @@ Supported model strings by provider:
 
 **Anthropic**: `claude-3-opus`, `claude-3-sonnet`, `claude-3-haiku`
 
-**LiteLLM**: Any model from [litellm providers](https://docs.litellm.ai/docs/providers)
+**Planned**: LiteLLM/local adapters
 
 ## Testing
 
@@ -190,36 +254,45 @@ pytest tests/comparators/test_semantic.py -v
 - [x] Schema definitions
 - [x] Base adapter abstraction
 - [x] OpenAI and Anthropic adapters
-- [ ] Test runner with concurrency
-- [ ] Cost tracking
+- [x] Test runner with concurrency
+- [x] Cost tracking
+
+### Phase 1.5: Hardening (Current)
+- [x] Retry + backoff for transient failures
+- [x] Per-model rate limiting
+- [x] Continue-on-error mode with error summaries
+- [x] Pricing override file support
+- [x] Cost deltas in compare output
 
 ### Phase 2: Comparators (Week 1-2)
 - [x] Semantic comparator (embeddings)
-- [ ] Behavioral comparator (LLM-as-judge)
-- [ ] Factual comparator (contradiction detection)
-- [ ] Format comparator (structure drift)
+- [x] Behavioral comparator (deterministic coverage delta)
+- [x] Factual comparator (deterministic factual rules)
+- [x] Format comparator (deterministic structure checks)
+- [x] Comparator-first aggregator module
+- [x] Optional LLM-as-judge mode (metadata-only)
 
 ### Phase 3: Reporting & CLI (Week 2)
 - [x] CLI skeleton with commands
 - [x] Report generator shell
-- [ ] JSON reporting implementation
-- [ ] HTML reporting with visualization
-- [ ] Markdown PR comment generation
-- [ ] Terminal rich output
+- [x] JSON reporting implementation
+- [x] HTML reporting with visualization (baseline)
+- [x] Markdown summary generation (baseline)
+- [x] Terminal rich output (baseline)
 
 ### Phase 4: Distribution
-- [ ] GitHub Actions CI
-- [ ] Docker image
-- [ ] PyPI packaging
-- [ ] GitHub Action for model upgrades
+- [x] GitHub Actions CI
+- [x] Docker image
+- [x] PyPI packaging
+- [x] GitHub Action for model upgrades
 
 ### Phase 5: Documentation & Launch
 - [x] README
 - [x] Quick start guide
 - [x] Contributing guidelines
-- [ ] API reference docs
-- [ ] Example test suites
-- [ ] Blog post/announcement
+- [x] API reference docs
+- [x] Example test suites
+- [x] Blog post/announcement
 
 ## Extension Points
 
@@ -261,6 +334,8 @@ pytest tests/comparators/test_semantic.py -v
 - `black>=23.7.0`: Code formatting
 - `ruff>=0.1.0`: Linting
 - `mypy>=1.5.0`: Type checking
+- `mkdocs>=1.6.0`: Documentation build tool
+- `mkdocs-material>=9.5.0`: Documentation theme
 
 ## License & Contributing
 

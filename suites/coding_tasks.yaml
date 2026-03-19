@@ -1,0 +1,169 @@
+# Test Suite: Coding Tasks
+# Tests coding quality across bug-fix, constrained generation, testing, refactor, and algorithm tasks.
+
+name: coding_tasks
+description: Tests practical coding behavior including bug-fixing, constrained outputs, tests, refactors, and complexity reasoning
+version: "1.0"
+metadata:
+  created: 2026-03-18
+  author: llm-behavior-diff
+  domain: coding
+
+test_cases:
+  - id: ct_001
+    prompt: |
+      Fix the bug in this function:
+      def sum_to_n(n: int) -> int:
+          total = 0
+          for i in range(n):
+              total += i
+          return total
+      Keep the same signature and return the corrected code.
+    category: coding_bugfix
+    tags: [python, bugfix, arithmetic]
+    expected_behavior: Must identify off-by-one loop issue, return corrected function code, and preserve original signature
+    max_tokens: 384
+    temperature: 0.1
+    metadata:
+      difficulty: easy
+      task_type: bugfix
+
+  - id: ct_002
+    prompt: |
+      Fix this JavaScript function so it does not crash on null input:
+      function normalizeName(name) {
+        return name.trim().toLowerCase();
+      }
+      Return a safe version of the function.
+    category: coding_bugfix
+    tags: [javascript, bugfix, null_handling]
+    expected_behavior: Must add null-safe handling, keep behavior for valid strings, and return compilable JavaScript
+    max_tokens: 384
+    temperature: 0.1
+    metadata:
+      difficulty: easy
+      task_type: bugfix
+
+  - id: ct_003
+    prompt: |
+      Write only Python code.
+      Implement: def parse_csv_line(line: str) -> list[str]
+      Requirements:
+      - Handle commas inside double quotes.
+      - Preserve empty fields.
+      - Do not import third-party packages.
+      Output only the function code.
+    category: structured_output
+    tags: [python, constrained_output, parsing]
+    expected_behavior: Must return only function code with exact signature, handle quoted commas and empty fields, and avoid third-party imports
+    max_tokens: 512
+    temperature: 0.2
+    metadata:
+      difficulty: medium
+      task_type: constrained_generation
+
+  - id: ct_004
+    prompt: |
+      Return valid JSON only.
+      Provide an object with keys:
+      language, function_name, time_complexity, space_complexity.
+      The object should describe a binary search implementation in JavaScript.
+    category: structured_output
+    tags: [json, constrained_output, algorithms]
+    expected_behavior: Must output valid JSON only with all required keys and accurate binary-search complexity values
+    max_tokens: 256
+    temperature: 0.1
+    metadata:
+      difficulty: easy
+      task_type: constrained_generation
+
+  - id: ct_005
+    prompt: |
+      Write pytest unit tests for this function:
+      def is_palindrome(s: str) -> bool:
+          s = ''.join(ch.lower() for ch in s if ch.isalnum())
+          return s == s[::-1]
+      Include edge cases for empty string, punctuation, mixed case, and non-palindrome input.
+    category: test_generation
+    tags: [python, pytest, unit_tests]
+    expected_behavior: Must produce runnable pytest tests covering empty, punctuation, mixed-case, and negative cases
+    max_tokens: 512
+    temperature: 0.2
+    metadata:
+      difficulty: medium
+      task_type: test_writing
+
+  - id: ct_006
+    prompt: |
+      Write table-driven Go tests for:
+      func Sum(nums []int) int
+      Include cases: empty slice, single value, positives, negatives, and mixed values.
+    category: test_generation
+    tags: [go, unit_tests, table_driven]
+    expected_behavior: Must produce idiomatic table-driven Go tests with all listed edge cases
+    max_tokens: 512
+    temperature: 0.2
+    metadata:
+      difficulty: medium
+      task_type: test_writing
+
+  - id: ct_007
+    prompt: |
+      Refactor this Python code to remove duplication while keeping behavior unchanged:
+      def area_circle(r):
+          pi = 3.14159
+          return pi * r * r
+
+      def circumference_circle(r):
+          pi = 3.14159
+          return 2 * pi * r
+    category: refactor
+    tags: [python, refactor, maintainability]
+    expected_behavior: Must extract shared constant or helper, keep outputs unchanged, and improve readability
+    max_tokens: 384
+    temperature: 0.3
+    metadata:
+      difficulty: easy
+      task_type: refactor
+
+  - id: ct_008
+    prompt: |
+      Explain and refactor this code for clarity without changing behavior:
+      def f(x):
+          return [i*i for i in x if i % 2 == 0]
+      Provide a short explanation and improved code.
+    category: refactor
+    tags: [python, explanation, readability]
+    expected_behavior: Must explain current behavior correctly and provide equivalent clearer code with unchanged semantics
+    max_tokens: 384
+    temperature: 0.3
+    metadata:
+      difficulty: easy
+      task_type: refactor
+
+  - id: ct_009
+    prompt: |
+      Implement a Python function top_k_frequent(nums: list[int], k: int) -> list[int].
+      Target complexity: O(n log k) or better.
+      Briefly justify time and space complexity.
+    category: algorithmic_reasoning
+    tags: [python, algorithms, complexity]
+    expected_behavior: Must provide correct implementation, meet stated complexity target, and include coherent complexity justification
+    max_tokens: 640
+    temperature: 0.2
+    metadata:
+      difficulty: medium
+      task_type: algorithm
+
+  - id: ct_010
+    prompt: |
+      Given an unweighted graph, should you use BFS or DFS to find the shortest path between two nodes?
+      Answer with: choice, reason, and minimal pseudocode.
+    category: algorithmic_reasoning
+    tags: [algorithms, bfs, dfs]
+    expected_behavior: Must choose BFS for shortest path in unweighted graph, justify choice, and provide minimal correct pseudocode
+    max_tokens: 512
+    temperature: 0.2
+    metadata:
+      difficulty: easy
+      task_type: algorithm

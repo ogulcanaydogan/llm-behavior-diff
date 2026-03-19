@@ -28,8 +28,8 @@ class OpenAIAdapter(ModelAdapter):
         super().__init__(model, config)
         try:
             from openai import AsyncOpenAI
-        except ImportError:
-            raise ImportError("openai package required. Install with: pip install openai")
+        except ImportError as exc:
+            raise ImportError("openai package required. Install with: pip install openai") from exc
 
         api_key = self.config.api_key or None  # Uses OPENAI_API_KEY env var by default
         self.client = AsyncOpenAI(api_key=api_key)
@@ -69,6 +69,8 @@ class OpenAIAdapter(ModelAdapter):
             text = response.choices[0].message.content or ""
 
             metadata = {
+                "input_tokens": response.usage.prompt_tokens,
+                "output_tokens": response.usage.completion_tokens,
                 "tokens_used": response.usage.total_tokens,
                 "latency_ms": latency_ms,
                 "stop_reason": response.choices[0].finish_reason,
@@ -77,8 +79,8 @@ class OpenAIAdapter(ModelAdapter):
 
             return text, metadata
 
-        except Exception as e:
-            raise RuntimeError(f"OpenAI API error: {str(e)}")
+        except Exception as exc:
+            raise RuntimeError(f"OpenAI API error: {str(exc)}") from exc
 
     async def health_check(self) -> bool:
         """

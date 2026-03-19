@@ -4,11 +4,11 @@ Core schema definitions for behavioral regression testing.
 Defines test cases, model responses, comparison results, and aggregated reports.
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class BehaviorCategory(str, Enum):
@@ -40,8 +40,7 @@ class TestCase(BaseModel):
     temperature: float = Field(default=0.7, description="Model temperature")
     metadata: Dict[str, Any] = Field(default_factory=dict, description="Custom metadata")
 
-    class Config:
-        use_enum_values = False
+    model_config = ConfigDict(use_enum_values=False)
 
 
 class TestSuite(BaseModel):
@@ -66,7 +65,7 @@ class ModelResponse(BaseModel):
     tokens_used: int = Field(default=0, description="Tokens consumed")
     latency_ms: float = Field(default=0.0, description="Response latency in milliseconds")
     stop_reason: str = Field(default="stop", description="Why model stopped")
-    timestamp: datetime = Field(default_factory=datetime.utcnow)
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     metadata: Dict[str, Any] = Field(default_factory=dict)
 
 
@@ -112,7 +111,7 @@ class BehaviorReport(BaseModel):
     """Aggregated behavioral regression report for a full test suite run."""
 
     id: str = Field(
-        default_factory=lambda: datetime.utcnow().isoformat(),
+        default_factory=lambda: datetime.now(timezone.utc).isoformat(),
         description="Report ID",
     )
     model_a: str = Field(..., description="First model version")
@@ -136,7 +135,7 @@ class BehaviorReport(BaseModel):
     improvement_by_category: Dict[BehaviorCategory, int] = Field(
         default_factory=dict, description="Improvement counts by behavior category"
     )
-    timestamp: datetime = Field(default_factory=datetime.utcnow)
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     duration_seconds: float = Field(default=0.0, description="Total run duration")
     metadata: Dict[str, Any] = Field(default_factory=dict)
 
