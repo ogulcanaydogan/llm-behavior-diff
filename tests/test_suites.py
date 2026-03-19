@@ -19,7 +19,6 @@ NEW_SUITE_FILES = [
 ]
 
 
-
 def test_expected_suite_files_present() -> None:
     expected = {
         "general_knowledge.yaml",

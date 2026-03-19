@@ -29,7 +29,9 @@ class AnthropicAdapter(ModelAdapter):
         try:
             from anthropic import AsyncAnthropic
         except ImportError as exc:
-            raise ImportError("anthropic package required. Install with: pip install anthropic") from exc
+            raise ImportError(
+                "anthropic package required. Install with: pip install anthropic"
+            ) from exc
 
         api_key = self.config.api_key or None  # Uses ANTHROPIC_API_KEY env var by default
         self.client = AsyncAnthropic(api_key=api_key)

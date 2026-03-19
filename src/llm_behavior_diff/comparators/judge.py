@@ -14,6 +14,8 @@ _ALLOWED_WINNERS = {"A", "B", "TIE", "UNKNOWN"}
 
 def _clamp_confidence(value: object, fallback: float = 0.0) -> float:
     """Clamp confidence values into [0, 1] with a safe fallback."""
+    if not isinstance(value, (int, float, str)):
+        return fallback
     try:
         parsed = float(value)
     except (TypeError, ValueError):
@@ -108,7 +110,8 @@ class JudgeComparator:
 
     def _try_parse_json(self, text: str) -> object | None:
         try:
-            return json.loads(text)
+            parsed: object = json.loads(text)
+            return parsed
         except Exception:
             return None
 

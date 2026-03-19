@@ -4,7 +4,9 @@ Semantic similarity comparator for model responses.
 Uses sentence embeddings to detect semantically equivalent but differently worded outputs.
 """
 
-from typing import Optional, Tuple
+from __future__ import annotations
+
+from typing import Any, Optional, Tuple, cast
 
 import numpy as np
 
@@ -26,7 +28,7 @@ class SemanticComparator:
         """
         self.model_name = model_name
         self.threshold = threshold
-        self.model: Optional[object] = None
+        self.model: Optional[Any] = None
 
     def _load_model(self) -> None:
         """Lazy load sentence transformer model."""
@@ -59,15 +61,20 @@ class SemanticComparator:
             return 0.0, text_a == text_b
 
         self._load_model()
+        if self.model is None:
+            return 0.0, False
 
         # Compute embeddings
-        embeddings = self.model.encode([text_a, text_b])
+        encoder = cast(Any, self.model)
+        embeddings = encoder.encode([text_a, text_b])
         embedding_a = embeddings[0]
         embedding_b = embeddings[1]
 
         # Cosine similarity
         denominator = np.linalg.norm(embedding_a) * np.linalg.norm(embedding_b)
-        similarity = 0.0 if denominator == 0 else float(np.dot(embedding_a, embedding_b) / denominator)
+        similarity = (
+            0.0 if denominator == 0 else float(np.dot(embedding_a, embedding_b) / denominator)
+        )
 
         # Clamp to [0, 1]
         similarity = max(0.0, min(1.0, similarity))

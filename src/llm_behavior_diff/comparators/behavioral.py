@@ -37,4 +37,3 @@ class BehavioralComparator:
             confidence=score_confidence_from_delta(delta),
             reason=reason,
         )
-
