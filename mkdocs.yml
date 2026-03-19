@@ -20,6 +20,6 @@ nav:
   - API Reference: api-reference.md
   - Release Runbook: release-runbook.md
   - Launch Kit:
-      - dev.to Draft: launch-kit/devto.md
-      - HN Post Draft: launch-kit/hn.md
+      - dev.to Article: launch-kit/devto.md
+      - HN Post Pack: launch-kit/hn.md
       - HN First Comment: launch-kit/hn-first-comment.md

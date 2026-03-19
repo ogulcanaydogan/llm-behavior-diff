@@ -9,6 +9,8 @@
 3. Provider resolver maps model ids to adapters:
    - `gpt-*`, `o1-*`, `o3-*` -> OpenAI
    - `claude-*` -> Anthropic
+   - `litellm:<model_ref>` -> LiteLLM
+   - `local:<model_ref>` -> Local OpenAI-compatible endpoint
 4. For each test case:
    - model A/B calls run concurrently
    - retry + backoff + optional per-model rate-limit applied
@@ -21,7 +23,7 @@
 6. Aggregator applies precedence:
    - semantic-same > factual > format > behavioral > unknown
 7. BehaviorReport is assembled with diff stats, token usage, estimated cost, comparator summary,
-   and run-level bootstrap significance metadata.
+   and run-level significance metadata (bootstrap + Wilson intervals).
    - judge output is metadata-only and does not override deterministic final classification
 
 ## Core Modules
@@ -48,10 +50,12 @@
 - When `--judge-model` is enabled, judge token usage/cost is included in totals.
 - Built-in pricing map is used unless overridden by `--pricing-file`.
 - `pricing_source` indicates `builtin`, `file`, `builtin+file`, or `none`.
+- `local` adapter reads `LLM_DIFF_LOCAL_BASE_URL` (default `http://localhost:11434/v1`)
+  and optional `LLM_DIFF_LOCAL_API_KEY`.
 
 ## Reports
 
 - Primary output is JSON from `run`.
-- `report` renders table/json/html/markdown views (table/markdown include run-level CI when available).
+- `report` renders table/json/html/markdown views (table/markdown include run-level bootstrap + Wilson CI when available).
 - `compare` renders run-to-run metric deltas and optional markdown output.
-- `compare` also computes bootstrap delta significance from per-test outcomes when both reports include `diff_results`.
+- `compare` also computes bootstrap delta CI + permutation p-value from per-test outcomes when both reports include `diff_results`.

@@ -94,11 +94,32 @@ Artifacts:
 
 ## 4) Local Pre-Flight Checklist
 
-Before manual releases, run:
+Use a project-local virtual environment (PEP 668-safe) and run:
 
 ```bash
+make install-dev
+make ci-local
+```
+
+Then run release-check parity locally:
+
+```bash
+make release-local
+```
+
+Equivalent explicit commands:
+
+```bash
+python3 -m venv .venv
+. .venv/bin/activate
+pip install --upgrade pip
+pip install -e ".[dev]"
+
 ruff check src tests
+black --check src tests
+mypy src
 pytest -q
+.venv/bin/mkdocs build --strict
 python -m build
 twine check dist/*
 ```

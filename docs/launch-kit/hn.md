@@ -1,25 +1,24 @@
-# Show HN Draft Pack
+# Show HN Launch Pack
 
 ## Title Options
 
-1. Show HN: llm-behavior-diff – deterministic regression testing for LLM upgrades
-2. Show HN: A comparator-first tool to diff behavior between LLM versions
-3. Show HN: CI-friendly behavioral diffing for model upgrade safety
+1. Show HN: llm-behavior-diff — deterministic upgrade regression testing for LLMs
+2. Show HN: Comparator-first LLM behavior diffs with CI gating and report artifacts
+3. Show HN: A practical model-upgrade gate for LLM apps (deterministic + optional judge)
 
 ## HN Submission Draft
 
-I built `llm-behavior-diff`, a small tool for comparing two LLM versions on the same test suite before production upgrades.
+I built `llm-behavior-diff`, a CLI for comparing two LLM versions on the same suite before rollout.
 
-It focuses on deterministic behavior classification (not LLM-as-judge in this version):
+Core design:
 
-- semantic equivalence
-- factual drift rules
-- format/constraint checks
-- expected-behavior coverage deltas
+- deterministic comparator-first final decisions (`semantic`, `factual`, `format`, `behavioral`)
+- optional `--judge-model` layer for extra signal (metadata-only, non-fatal, never overrides final decision)
+- bootstrap + Wilson intervals in run metadata and bootstrap delta CI + permutation p-values in compare output
 
-It outputs JSON artifacts and supports CI gating (example policy: fail upgrade if regressions > 0).
+It outputs JSON artifacts for CI and supports strict upgrade gates (example: fail when regressions > 0).
 
-Current workflows in the repo:
+Workflows included in the repo:
 
 - core CI on PR/master
 - release-check (build/twine/wheel smoke)
@@ -27,26 +26,35 @@ Current workflows in the repo:
 - Docker build/smoke + optional GHCR push
 - model-upgrade regression workflow with suite artifacts
 
-I’d especially like feedback on:
+I’d value feedback on:
 
-1. deterministic-vs-judge tradeoffs
-2. regression gate policy design in production
-3. what metadata teams need for upgrade sign-off
+1. deterministic vs judge weighting in production sign-off
+2. practical regression gate policies at different risk tiers
+3. what audit metadata is required in real release reviews
 
 ## Likely Questions and Short Answers
 
-### Why not use an LLM judge directly?
+### Why keep deterministic as final decision?
 
-Deterministic first keeps the behavior explainable and cheap. LLM-as-judge is planned as an optional layer.
+Deterministic precedence is predictable and reproducible in CI. Judge is available for extra context without changing final flags.
 
-### Is this only for OpenAI models?
+### Is LLM-as-judge implemented?
 
-Current provider resolver supports OpenAI (`gpt-*`, `o1-*`, `o3-*`) and Anthropic (`claude-*`).
+Yes, opt-in via `--judge-model`. It runs only on semantic diffs and writes comparator metadata.
 
-### How do you handle transient API failures?
+### Is significance implemented?
 
-Retry with exponential backoff + jitter, optional rate limiting, and optional continue-on-error mode.
+Yes. Run metadata includes bootstrap + Wilson intervals, and compare prints bootstrap delta CI plus permutation p-value rows when `diff_results` are available.
 
-### Is there a hard upgrade gate?
+### Which providers are supported now?
 
-Yes. The model-upgrade workflow can fail if total regressions > 0.
+Current resolver supports:
+
+- OpenAI prefixes (`gpt-*`, `o1-*`, `o3-*`)
+- Anthropic prefixes (`claude-*`)
+- explicit LiteLLM refs (`litellm:<model_ref>`)
+- explicit local OpenAI-compatible refs (`local:<model_ref>`)
+
+### How are transient failures handled?
+
+Retry with exponential backoff + jitter, optional per-model rate limiting, and optional continue-on-error mode.
