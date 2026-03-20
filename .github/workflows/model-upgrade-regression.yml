@@ -64,6 +64,10 @@ concurrency:
   group: model-upgrade-regression-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  # Force JavaScript-based actions onto Node24 ahead of GitHub's Node20 deprecation window.
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
 jobs:
   regression-gate:
     runs-on: ubuntu-latest

@@ -10,6 +10,10 @@ concurrency:
   group: release-check-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  # Force JavaScript-based actions onto Node24 ahead of GitHub's Node20 deprecation window.
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
 jobs:
   package-check:
     runs-on: ubuntu-latest
