@@ -285,6 +285,88 @@ def test_compare_prints_delta_and_writes_markdown(tmp_path: Path) -> None:
     assert "Estimated Cost (USD)" in compare_content
 
 
+def test_gate_strict_pass_returns_zero(tmp_path: Path) -> None:
+    report_path = tmp_path / "gate_pass.json"
+    report = BehaviorReport(
+        model_a="gpt-4o",
+        model_b="gpt-4.5",
+        suite_name="suite",
+        total_tests=10,
+        total_diffs=0,
+        regressions=0,
+        improvements=0,
+        duration_seconds=1.0,
+    )
+    report_path.write_text(json.dumps(report.model_dump(mode="json"), indent=2), encoding="utf-8")
+
+    result = CliRunner().invoke(main, ["gate", str(report_path), "--policy", "strict"])
+    assert result.exit_code == 0
+    assert "Gate passed" in result.output
+
+
+def test_gate_strict_fail_returns_two(tmp_path: Path) -> None:
+    report_path = tmp_path / "gate_fail.json"
+    report = BehaviorReport(
+        model_a="gpt-4o",
+        model_b="gpt-4.5",
+        suite_name="suite",
+        total_tests=10,
+        total_diffs=1,
+        regressions=1,
+        improvements=0,
+        duration_seconds=1.0,
+    )
+    report_path.write_text(json.dumps(report.model_dump(mode="json"), indent=2), encoding="utf-8")
+
+    result = CliRunner().invoke(main, ["gate", str(report_path), "--policy", "strict"])
+    assert result.exit_code == 2
+    assert "Gate failed" in result.output
+
+
+def test_gate_json_output_writes_file(tmp_path: Path) -> None:
+    report_path = tmp_path / "gate_json.json"
+    output_path = tmp_path / "gate_result.json"
+    report = BehaviorReport(
+        model_a="gpt-4o",
+        model_b="gpt-4.5",
+        suite_name="suite",
+        total_tests=100,
+        total_diffs=2,
+        regressions=2,
+        improvements=0,
+        duration_seconds=1.0,
+    )
+    report_path.write_text(json.dumps(report.model_dump(mode="json"), indent=2), encoding="utf-8")
+
+    result = CliRunner().invoke(
+        main,
+        [
+            "gate",
+            str(report_path),
+            "--policy",
+            "balanced",
+            "--format",
+            "json",
+            "--output",
+            str(output_path),
+        ],
+    )
+    assert result.exit_code == 0
+    payload = json.loads(output_path.read_text(encoding="utf-8"))
+    assert payload["policy"] == "balanced"
+    assert payload["passed"] is True
+    assert payload["thresholds"]["allowed_regressions"] == 2
+
+
+def test_gate_invalid_report_fails_with_usage_error_code_one(tmp_path: Path) -> None:
+    report_path = tmp_path / "invalid_report.json"
+    report_path.write_text("{invalid json", encoding="utf-8")
+
+    result = CliRunner().invoke(main, ["gate", str(report_path)])
+    assert result.exit_code == 1
+    assert "Error loading report" in result.output
+
+
 def test_report_table_and_markdown_include_significance_when_available(tmp_path: Path) -> None:
     report_path = tmp_path / "report.json"
     markdown_path = tmp_path / "report.md"
