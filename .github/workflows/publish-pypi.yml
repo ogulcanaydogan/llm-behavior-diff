@@ -21,7 +21,9 @@ permissions:
   id-token: write
 
 concurrency:
-  group: publish-pypi-${{ github.workflow }}-${{ inputs.target }}
+  # Keep workflow-level concurrency independent from workflow_dispatch inputs.
+  # Referencing `inputs.*` here can cause push-time workflow evaluation failures.
+  group: publish-pypi-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
