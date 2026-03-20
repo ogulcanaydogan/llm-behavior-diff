@@ -8,6 +8,8 @@ This runbook covers manual distribution and model-upgrade gating workflows.
 - GitHub Actions enabled for the repository
 - Package version updated in `pyproject.toml`
 - Required secrets configured (see matrix below)
+- Workflow runtime policy: JavaScript-based actions are forced to Node24 via
+  `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24=true` at workflow scope.
 
 ## Secrets and Permissions Matrix
 

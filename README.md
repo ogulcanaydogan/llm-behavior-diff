@@ -235,6 +235,7 @@ Evaluate one run report with deterministic policy templates:
 - `publish-pypi.yml`: manual TestPyPI/PyPI publish flow
 - `docker-image.yml`: PR/master build+smoke, optional manual GHCR push
 - `model-upgrade-regression.yml`: manual/reusable regression gate (`gate_policy`: `strict|balanced|permissive`, default `strict`)
+- Runtime hardening: all workflows force JavaScript actions on Node24 via `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24=true`.
 
 Local parity commands:
 
