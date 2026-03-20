@@ -25,6 +25,8 @@
 7. BehaviorReport is assembled with diff stats, token usage, estimated cost, comparator summary,
    and run-level significance metadata (bootstrap + Wilson intervals).
    - judge output is metadata-only and does not override deterministic final classification
+8. Optional policy gate evaluates report artifacts with deterministic risk-tier templates
+   (`strict`, `balanced`, `permissive`) in both CLI and CI.
 
 ## Core Modules
 
@@ -32,6 +34,7 @@
 - `adapters/`: provider-specific model calls and metadata
 - `comparators/`: deterministic scoring and decision outputs
 - `aggregator.py`: final category/regression/improvement decision point
+- `policy.py`: deterministic risk-tier gate policy evaluation
 - `schema.py`: report/test/diff data models
 - `cli.py`: command surface and formatting
 
@@ -59,3 +62,4 @@
 - `report` renders table/json/html/markdown views (table/markdown include run-level bootstrap + Wilson CI when available).
 - `compare` renders run-to-run metric deltas and optional markdown output.
 - `compare` also computes bootstrap delta CI + permutation p-value from per-test outcomes when both reports include `diff_results`.
+- `gate` evaluates one JSON report with risk-tier policy templates and returns CI-friendly exit codes.

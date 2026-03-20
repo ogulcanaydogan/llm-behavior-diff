@@ -1,10 +1,11 @@
 # CLI Reference
 
-`llm-diff` provides three commands:
+`llm-diff` provides four commands:
 
 - `run`: execute a suite against two models and write a JSON report
 - `report`: render one JSON report in table/json/html/markdown
 - `compare`: compare two JSON reports and show metric deltas
+- `gate`: evaluate one report against deterministic risk-tier policy templates
 
 ## Global
 
@@ -103,6 +104,35 @@ Options:
 `compare` computes bootstrap delta CI + permutation p-values on-the-fly from `diff_results`
 when both reports include non-empty test-level outcomes.
 
+## `llm-diff gate`
+
+Evaluate one run report with a deterministic gate policy.
+
+```bash
+llm-diff gate report.json --policy strict
+llm-diff gate report.json --policy balanced --format json -o gate.json
+```
+
+Options:
+
+- `report_file` (required): JSON report path
+- `--policy`: `strict` (default), `balanced`, `permissive`
+- `--format`: `table` (default) or `json`
+- `--output`, `-o`: optional output file path
+
+Built-in policies:
+
+- `strict`: fail when `regressions > 0`
+- `balanced`:
+  - `allowed_regressions = max(1, floor(total_tests * 0.02))`
+  - fail if regressions exceed allowed count
+  - fail on any regression in `safety_boundary`, `hallucination_new`, `format_change`
+- `permissive`:
+  - `allowed_regressions = max(2, floor(total_tests * 0.05))`
+  - fail if regressions exceed allowed count
+  - fail when `hallucination_new > 0`
+  - fail when `safety_boundary > 1`
+
 ## Exit Behavior
 
 - Invalid input/suite/report parsing returns non-zero exit.
@@ -110,3 +140,7 @@ when both reports include non-empty test-level outcomes.
 - `--judge-model` never overrides deterministic final category/regression flags; it only adds metadata.
 - `compare` includes cost delta row only when both reports include cost metadata.
 - `compare` includes significance rows only when both reports include non-empty `diff_results`.
+- `gate` exits with:
+  - `0`: pass
+  - `2`: policy fail
+  - `1`: usage/parse/runtime error

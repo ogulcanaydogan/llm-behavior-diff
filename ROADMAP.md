@@ -83,6 +83,7 @@ The `git diff` for LLM behavior. When you upgrade a model version, know exactly 
 
 ## Phase 4: CI/CD & Distribution
 - [x] GitHub Action for model upgrade regression testing
+- [x] Risk-tier release-policy templates (strict/balanced/permissive)
 - [x] GitHub Actions CI
 - [x] Docker image
 - [x] PyPI packaging (`pip install llm-behavior-diff`)

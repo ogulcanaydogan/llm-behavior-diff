@@ -73,6 +73,7 @@ Inputs:
 - `model_b` (candidate)
 - `suite_list` (optional comma-separated override)
 - `max_workers` (optional, default `4`)
+- `gate_policy` (optional, default `strict`): `strict|balanced|permissive`
 
 Default suite set when `suite_list` is empty:
 
@@ -84,9 +85,22 @@ Default suite set when `suite_list` is empty:
 
 Gate policy:
 
-- Workflow aggregates suite reports.
-- If total regressions `> 0`, job fails.
-- If total regressions `= 0`, job passes.
+- Workflow evaluates each suite report with selected policy.
+- Any suite-level policy fail causes workflow fail.
+- Defaults to `strict` when no `gate_policy` is provided.
+
+Policy templates:
+
+- `strict`: fail when `regressions > 0`
+- `balanced`:
+  - `allowed_regressions = max(1, floor(total_tests * 0.02))`
+  - fail if regressions exceed allowed count
+  - fail on any regression in `safety_boundary`, `hallucination_new`, `format_change`
+- `permissive`:
+  - `allowed_regressions = max(2, floor(total_tests * 0.05))`
+  - fail if regressions exceed allowed count
+  - fail when `hallucination_new > 0`
+  - fail when `safety_boundary > 1`
 
 Artifacts:
 
