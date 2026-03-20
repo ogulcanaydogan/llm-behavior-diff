@@ -20,11 +20,13 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable, Sequence, Tuple
 
-import yaml
+import yaml  # type: ignore[import-untyped]
 from pydantic import ValidationError
 
 from .adapters.anthropic_adapter import AnthropicAdapter
 from .adapters.base import ModelAdapter
+from .adapters.litellm_adapter import LiteLLMAdapter
+from .adapters.local_adapter import LocalAdapter
 from .adapters.openai_adapter import OpenAIAdapter
 from .aggregator import (
     aggregate_comparator_results,
@@ -50,9 +52,11 @@ from .statistics import (
     DEFAULT_BOOTSTRAP_SEED,
     DEFAULT_CONFIDENCE_LEVEL,
     bootstrap_rate_interval,
+    wilson_rate_interval,
 )
 
 _RETRYABLE_STATUS_PATTERN = re.compile(r"\b(429|5\d\d)\b")
+_EXPLICIT_PROVIDER_PREFIXES = {"litellm", "local", "openai", "anthropic"}
 _RETRYABLE_ERROR_HINTS = (
     "rate limit",
     "timeout",
@@ -152,9 +156,7 @@ def load_test_suite(path: str | Path) -> TestSuite:
         raise ValueError(f"Invalid YAML in suite file '{suite_path}': {exc}") from exc
 
     if not isinstance(payload, dict):
-        raise ValueError(
-            f"Suite file '{suite_path}' must contain a YAML object at the top level."
-        )
+        raise ValueError(f"Suite file '{suite_path}' must contain a YAML object at the top level.")
 
     try:
         return TestSuite.model_validate(payload)
@@ -164,24 +166,62 @@ def load_test_suite(path: str | Path) -> TestSuite:
 
 def resolve_provider(model: str) -> str:
     """Resolve provider name from model identifier."""
-    normalized = model.strip().lower()
+    explicit_provider, normalized_model = parse_model_reference(model)
+    if explicit_provider is not None:
+        return explicit_provider
+
+    normalized = normalized_model.lower()
     if normalized.startswith(("gpt-", "o1-", "o3-")):
         return "openai"
     if normalized.startswith("claude-"):
         return "anthropic"
     raise ValueError(
-        f"Unsupported model '{model}'. Supported prefixes: gpt-, o1-, o3-, claude-"
+        f"Unsupported model '{model}'. Supported formats include gpt-*, o1-*, o3-*, "
+        "claude-*, litellm:<model_ref>, local:<model_ref>. "
+        "Examples: gpt-4o, claude-3-5-sonnet, litellm:openai/gpt-4o-mini, local:llama3.1"
     )
 
 
 def create_adapter(model: str) -> ModelAdapter:
     """Create provider-specific adapter from a model identifier."""
-    provider = resolve_provider(model)
+    explicit_provider, model_ref = parse_model_reference(model)
+    provider = explicit_provider or resolve_provider(model_ref)
+
     if provider == "openai":
-        return OpenAIAdapter(model=model)
+        return OpenAIAdapter(model=model_ref)
     if provider == "anthropic":
-        return AnthropicAdapter(model=model)
+        return AnthropicAdapter(model=model_ref)
+    if provider == "litellm":
+        return LiteLLMAdapter(model=model_ref)
+    if provider == "local":
+        return LocalAdapter(model=model_ref)
     raise ValueError(f"Unsupported provider '{provider}' for model '{model}'")
+
+
+def parse_model_reference(model: str) -> tuple[str | None, str]:
+    """
+    Parse ``provider:model_ref`` format and return (provider, model_ref).
+
+    Returns (None, original_model) when the model id is not explicitly prefixed.
+    """
+    raw = model.strip()
+    if not raw:
+        raise ValueError("Model identifier cannot be empty.")
+
+    if ":" not in raw:
+        return None, raw
+
+    provider_candidate, model_ref = raw.split(":", 1)
+    provider = provider_candidate.strip().lower()
+    if provider not in _EXPLICIT_PROVIDER_PREFIXES:
+        return None, raw
+
+    normalized_model_ref = model_ref.strip()
+    if not normalized_model_ref:
+        raise ValueError(
+            f"Invalid model identifier '{model}'. Expected format '<provider>:<model_ref>'."
+        )
+    return provider, normalized_model_ref
 
 
 def load_pricing_overrides(path: str | Path) -> dict[str, dict[str, float]]:
@@ -245,8 +285,8 @@ def compute_backoff_seconds(
 ) -> float:
     """Compute exponential backoff delay with optional jitter."""
     delay = base_delay * (2**retry_index)
-    jitter = random.uniform(0.0, max(0.0, jitter_seconds))
-    return delay + jitter
+    jitter = float(random.uniform(0.0, max(0.0, jitter_seconds)))
+    return float(delay + jitter)
 
 
 def score_expected_behavior_coverage(expected_behavior: str, response: str) -> float:
@@ -255,7 +295,7 @@ def score_expected_behavior_coverage(expected_behavior: str, response: str) -> f
 
     The score is the fraction of expected-behavior tokens that appear in the response.
     """
-    return comparator_behavior_coverage(expected_behavior, response)
+    return float(comparator_behavior_coverage(expected_behavior, response))
 
 
 def infer_behavior_category(test_category: str) -> BehaviorCategory:
@@ -450,6 +490,7 @@ class BehaviorDiffRunner:
         self.model_a = model_a
         self.model_b = model_b
         self.judge_model = judge_model
+        judge_model_ref = self.judge_model
         self.max_workers = max_workers
         self.continue_on_error = continue_on_error
         self.max_retries = max_retries
@@ -471,10 +512,14 @@ class BehaviorDiffRunner:
         self.format_comparator = format_comparator or FormatComparator()
         self.rate_limiter_a = AsyncRateLimiter(rate_limit_rps=self.rate_limit_rps)
         self.rate_limiter_b = AsyncRateLimiter(rate_limit_rps=self.rate_limit_rps)
-        self.judge_enabled = bool(self.judge_model)
-        self.judge_adapter = (
-            judge_adapter if judge_adapter is not None else create_adapter(self.judge_model)
-        ) if self.judge_enabled else None
+        self.judge_enabled = judge_model_ref is not None
+        self.judge_adapter: ModelAdapter | None
+        if judge_model_ref is not None:
+            self.judge_adapter = (
+                judge_adapter if judge_adapter is not None else create_adapter(judge_model_ref)
+            )
+        else:
+            self.judge_adapter = None
         self.judge_comparator = judge_comparator or JudgeComparator()
         self.judge_rate_limiter = (
             AsyncRateLimiter(rate_limit_rps=self.rate_limit_rps) if self.judge_enabled else None
@@ -656,14 +701,14 @@ class BehaviorDiffRunner:
             return judge_result, judge_metadata
         except TestExecutionError as exc:
             result = self.judge_comparator.error_result(str(exc))
-            metadata = _empty_usage()
+            metadata: dict[str, Any] = _empty_usage()
             metadata.update({"retry_attempts": exc.attempts, "error": str(exc)})
             return result, metadata
         except Exception as exc:
             result = self.judge_comparator.error_result(f"Judge error: {exc}")
-            metadata = _empty_usage()
-            metadata.update({"retry_attempts": 0, "error": str(exc)})
-            return result, metadata
+            error_metadata: dict[str, Any] = _empty_usage()
+            error_metadata.update({"retry_attempts": 0, "error": str(exc)})
+            return result, error_metadata
 
     async def _generate_with_retries(
         self,
@@ -728,7 +773,9 @@ class BehaviorDiffRunner:
                 await asyncio.sleep(backoff_seconds)
                 attempts += 1
 
-    def _aggregate_token_usage(self, diff_results: Iterable[DiffResult]) -> dict[str, dict[str, int]]:
+    def _aggregate_token_usage(
+        self, diff_results: Iterable[DiffResult]
+    ) -> dict[str, dict[str, int]]:
         """Aggregate token usage from model metadata in diff results."""
         model_names = [self.model_a, self.model_b]
         if self.judge_enabled and self.judge_model:
@@ -769,6 +816,7 @@ class BehaviorDiffRunner:
             "resamples": DEFAULT_BOOTSTRAP_RESAMPLES,
             "seed": DEFAULT_BOOTSTRAP_SEED,
             "sample_size": len(diff_results),
+            "rate_interval_methods": ["bootstrap", "wilson"],
             "regression_rate": bootstrap_rate_interval(
                 regressions,
                 resamples=DEFAULT_BOOTSTRAP_RESAMPLES,
@@ -780,6 +828,14 @@ class BehaviorDiffRunner:
                 resamples=DEFAULT_BOOTSTRAP_RESAMPLES,
                 confidence_level=DEFAULT_CONFIDENCE_LEVEL,
                 seed=DEFAULT_BOOTSTRAP_SEED,
+            ),
+            "regression_rate_wilson": wilson_rate_interval(
+                regressions,
+                confidence_level=DEFAULT_CONFIDENCE_LEVEL,
+            ),
+            "improvement_rate_wilson": wilson_rate_interval(
+                improvements,
+                confidence_level=DEFAULT_CONFIDENCE_LEVEL,
             ),
         }
 
@@ -795,6 +851,7 @@ __all__ = [
     "is_retryable_error",
     "load_test_suite",
     "load_pricing_overrides",
+    "parse_model_reference",
     "resolve_provider",
     "score_expected_behavior_coverage",
 ]

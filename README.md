@@ -7,7 +7,7 @@ Deterministic behavioral regression testing for LLM model upgrades.
 ![Python](https://img.shields.io/badge/Python-3.11%2B-3776AB?logo=python&logoColor=white)
 ![License](https://img.shields.io/badge/License-MIT-green.svg)
 ![CLI](https://img.shields.io/badge/CLI-llm--diff-black)
-![Method](https://img.shields.io/badge/Method-Deterministic%20%2B%20Bootstrap-blue)
+![Method](https://img.shields.io/badge/Method-Deterministic%20%2B%20Bootstrap%20%2B%20Wilson%20%2B%20Permutation-blue)
 
 ## At A Glance
 
@@ -15,7 +15,7 @@ Deterministic behavioral regression testing for LLM model upgrades.
 | --- | --- | --- |
 | Deterministic comparator pipeline | Implemented | semantic, factual, format, behavioral |
 | Optional LLM-as-judge | Implemented | metadata-only, never overrides final decision |
-| Statistical significance (bootstrap CI) | Implemented | run metadata + compare delta rows |
+| Statistical significance (bootstrap + Wilson + permutation) | Implemented | run metadata + compare delta rows |
 | CI release checks | Implemented | quality, build/twine, regression workflow |
 
 ## Why This Exists
@@ -40,7 +40,7 @@ Ad-hoc prompt checks miss these patterns and are hard to reproduce in CI.
 - Comparator-first deterministic diffing (`semantic`, `factual`, `format`, `behavioral`)
 - Single-suite run command with retry/rate-limit/cost controls
 - JSON report artifacts for CI and governance workflows
-- Report rendering in `table`, `json`, `html`, `markdown`
+- Report rendering in `table`, `json`, `markdown`, and interactive self-contained `html`
 - Run-to-run compare command with delta metrics
 
 ## Installation
@@ -58,6 +58,9 @@ Requires Python 3.11+.
 ```bash
 export OPENAI_API_KEY=sk-...
 export ANTHROPIC_API_KEY=sk-ant-...
+export LLM_DIFF_LOCAL_BASE_URL=http://localhost:11434/v1
+# optional:
+# export LLM_DIFF_LOCAL_API_KEY=local-api-key
 ```
 
 ### 2) Create a suite
@@ -124,6 +127,8 @@ llm-diff compare previous_run.json candidate_run.json -o comparison.md
 2. Resolve providers from model prefixes:
    - `gpt-*`, `o1-*`, `o3-*` -> OpenAI
    - `claude-*` -> Anthropic
+   - `litellm:<model_ref>` -> LiteLLM
+   - `local:<model_ref>` -> Local OpenAI-compatible endpoint
 3. Execute each test with model A and B concurrently.
 4. Apply deterministic comparators:
    - `semantic`: semantic equivalence gate
@@ -213,6 +218,14 @@ Compare two run reports and print/write metric deltas.
 - `docker-image.yml`: PR/master build+smoke, optional manual GHCR push
 - `model-upgrade-regression.yml`: manual/reusable regression gate (fails on any regression)
 
+Local parity commands:
+
+```bash
+make install-dev
+make ci-local
+make release-local
+```
+
 Full operational steps and secret matrix are in [docs/release-runbook.md](docs/release-runbook.md).
 
 ## Documentation
@@ -233,12 +246,9 @@ Implemented now:
 - deterministic comparator pipeline
 - optional LLM-as-judge (metadata-only, opt-in)
 - retry/rate-limit/cost tracking
-- bootstrap significance/confidence intervals (metadata-only + compare rows)
+- bootstrap + Wilson confidence intervals (run metadata)
+- bootstrap delta CI + permutation p-value (compare rows)
 - suite templates and CI distribution workflows
-
-Planned:
-
-- extended statistical testing beyond bootstrap CI (future)
 
 ## Contributing
 

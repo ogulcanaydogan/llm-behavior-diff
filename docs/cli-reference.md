@@ -39,6 +39,20 @@ Options:
 - `--pricing-file`: optional YAML/JSON pricing override file
 - `--judge-model`: optional LLM-as-judge model id (metadata-only, non-fatal, semantic-diff tests only)
 
+Model id formats:
+
+- Legacy resolver:
+  - OpenAI: `gpt-*`, `o1-*`, `o3-*`
+  - Anthropic: `claude-*`
+- Explicit prefixes:
+  - LiteLLM: `litellm:<model_ref>` (example: `litellm:openai/gpt-4o-mini`)
+  - Local OpenAI-compatible: `local:<model_ref>` (example: `local:llama3.1`)
+
+Local adapter environment variables:
+
+- `LLM_DIFF_LOCAL_BASE_URL` (default: `http://localhost:11434/v1`)
+- `LLM_DIFF_LOCAL_API_KEY` (optional; fallback placeholder is used when unset)
+
 ### Dry Run
 
 ```bash
@@ -65,8 +79,11 @@ Options:
 - `--format`: `table` (default), `json`, `html`, `markdown`
 - `--output`, `-o`: output file path (stdout when omitted)
 
-`report` table/markdown output includes run-level bootstrap confidence intervals when
+`report` table/markdown output includes run-level bootstrap + Wilson confidence intervals when
 `metadata.significance` is present.
+
+`report --format html` generates a self-contained interactive explorer (no external JS/CSS/CDN),
+including KPI cards, category breakdown, filterable/sortable diff table, and expandable row details.
 
 ## `llm-diff compare`
 
@@ -83,7 +100,7 @@ Options:
 - `result_b` (required): run B JSON
 - `--output`, `-o`: optional markdown summary output path
 
-`compare` computes bootstrap delta significance on-the-fly from `diff_results`
+`compare` computes bootstrap delta CI + permutation p-values on-the-fly from `diff_results`
 when both reports include non-empty test-level outcomes.
 
 ## Exit Behavior

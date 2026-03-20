@@ -17,6 +17,14 @@ export OPENAI_API_KEY=sk-...
 export ANTHROPIC_API_KEY=sk-ant-...
 ```
 
+Optional for local OpenAI-compatible targets:
+
+```bash
+export LLM_DIFF_LOCAL_BASE_URL=http://localhost:11434/v1
+# optional:
+# export LLM_DIFF_LOCAL_API_KEY=local-api-key
+```
+
 ## 3) Create a Suite File
 
 Create `my_tests.yaml`:
@@ -134,9 +142,30 @@ llm-diff run \
 
 Judge outcomes are written into `metadata.comparators.judge` and do not override deterministic final classification.
 
+## Optional: Explicit LiteLLM / Local Model IDs
+
+You can route via explicit prefixes:
+
+```bash
+llm-diff run \
+  --model-a litellm:openai/gpt-4o-mini \
+  --model-b local:llama3.1 \
+  --suite my_tests.yaml \
+  --output prefixed_results.json
+```
+
 ## Next Reads
 
 - [CLI Reference](cli-reference.md)
 - [Suite Reference](suite-reference.md)
 - [Architecture](architecture.md)
 - [Release Runbook](release-runbook.md)
+
+## Local Dev / CI Parity (Optional)
+
+For repository contributors:
+
+```bash
+make install-dev
+make ci-local
+```

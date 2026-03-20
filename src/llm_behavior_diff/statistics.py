@@ -1,8 +1,10 @@
-"""Deterministic bootstrap significance utilities."""
+"""Deterministic significance utilities for binary behavioral outcomes."""
 
 from __future__ import annotations
 
 import random
+from math import sqrt
+from statistics import NormalDist
 from typing import Sequence
 
 DEFAULT_BOOTSTRAP_RESAMPLES = 5000
@@ -76,6 +78,83 @@ def bootstrap_rate_delta_interval(
         "ci_high": ci_high,
         "significant": ci_low > 0.0 or ci_high < 0.0,
         "p_value_two_sided": p_value,
+    }
+
+
+def wilson_rate_interval(
+    values: Sequence[int | bool],
+    *,
+    confidence_level: float = DEFAULT_CONFIDENCE_LEVEL,
+) -> dict[str, float]:
+    """Compute Wilson score interval for a binary rate."""
+    sample = _coerce_binary(values)
+    sample_size = len(sample)
+    if sample_size == 0:
+        return {
+            "point": 0.0,
+            "ci_low": 0.0,
+            "ci_high": 0.0,
+        }
+
+    point = _mean(sample)
+    clamped = min(0.9999, max(0.0, float(confidence_level)))
+    alpha = 1.0 - clamped
+    z = NormalDist().inv_cdf(1.0 - (alpha / 2.0))
+    z_squared = z * z
+
+    denominator = 1.0 + (z_squared / float(sample_size))
+    center = (point + (z_squared / (2.0 * float(sample_size)))) / denominator
+    margin = (
+        z
+        * sqrt(
+            (point * (1.0 - point) / float(sample_size))
+            + (z_squared / (4.0 * float(sample_size) * float(sample_size)))
+        )
+        / denominator
+    )
+
+    return {
+        "point": point,
+        "ci_low": max(0.0, center - margin),
+        "ci_high": min(1.0, center + margin),
+    }
+
+
+def permutation_rate_delta_test(
+    values_a: Sequence[int | bool],
+    values_b: Sequence[int | bool],
+    *,
+    resamples: int = DEFAULT_BOOTSTRAP_RESAMPLES,
+    seed: int = DEFAULT_BOOTSTRAP_SEED,
+    significance_threshold: float = 0.05,
+) -> dict[str, float | bool] | None:
+    """Permutation test for delta in binary rates (`rate_b - rate_a`)."""
+    sample_a = _coerce_binary(values_a)
+    sample_b = _coerce_binary(values_b)
+    if not sample_a or not sample_b:
+        return None
+
+    safe_resamples = max(1, int(resamples))
+    n_a = len(sample_a)
+    combined = sample_a + sample_b
+    observed_delta = _mean(sample_b) - _mean(sample_a)
+
+    rng = random.Random(seed)
+    extreme_count = 0
+    for _ in range(safe_resamples):
+        shuffled = list(combined)
+        rng.shuffle(shuffled)
+        perm_a = shuffled[:n_a]
+        perm_b = shuffled[n_a:]
+        perm_delta = _mean(perm_b) - _mean(perm_a)
+        if abs(perm_delta) >= abs(observed_delta):
+            extreme_count += 1
+
+    p_value = (extreme_count + 1.0) / (float(safe_resamples) + 1.0)
+    return {
+        "point": observed_delta,
+        "p_value_two_sided": p_value,
+        "significant": p_value < float(significance_threshold),
     }
 
 

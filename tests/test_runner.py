@@ -14,10 +14,12 @@ from llm_behavior_diff.runner import (
     build_behavior_report,
     compute_backoff_seconds,
     compute_estimated_cost_usd,
+    create_adapter,
     infer_behavior_category,
     is_retryable_error,
     load_pricing_overrides,
     load_test_suite,
+    parse_model_reference,
     resolve_provider,
     score_expected_behavior_coverage,
 )
@@ -144,8 +146,72 @@ def test_provider_resolution() -> None:
     assert resolve_provider("o1-preview") == "openai"
     assert resolve_provider("o3-mini") == "openai"
     assert resolve_provider("claude-3-5-sonnet") == "anthropic"
+    assert resolve_provider("litellm:openai/gpt-4o-mini") == "litellm"
+    assert resolve_provider("local:llama3.1") == "local"
     with pytest.raises(ValueError, match="Unsupported model"):
         resolve_provider("gemini-1.5-pro")
+
+
+def test_parse_model_reference() -> None:
+    assert parse_model_reference("gpt-4o") == (None, "gpt-4o")
+    assert parse_model_reference("litellm:openai/gpt-4o-mini") == ("litellm", "openai/gpt-4o-mini")
+    assert parse_model_reference("local:llama3.1") == ("local", "llama3.1")
+    with pytest.raises(ValueError, match="Invalid model identifier"):
+        parse_model_reference("local:")
+
+
+def test_create_adapter_routes_with_explicit_and_legacy_models(monkeypatch) -> None:
+    created: list[tuple[str, str]] = []
+
+    class _FakeAdapter:
+        def __init__(self, model: str) -> None:
+            self.model = model
+
+    class FakeOpenAIAdapter(_FakeAdapter):
+        pass
+
+    class FakeAnthropicAdapter(_FakeAdapter):
+        pass
+
+    class FakeLiteLLMAdapter(_FakeAdapter):
+        pass
+
+    class FakeLocalAdapter(_FakeAdapter):
+        pass
+
+    def _track_ctor(name: str):
+        def _ctor(model: str):
+            created.append((name, model))
+            if name == "openai":
+                return FakeOpenAIAdapter(model)
+            if name == "anthropic":
+                return FakeAnthropicAdapter(model)
+            if name == "litellm":
+                return FakeLiteLLMAdapter(model)
+            return FakeLocalAdapter(model)
+
+        return _ctor
+
+    monkeypatch.setattr("llm_behavior_diff.runner.OpenAIAdapter", _track_ctor("openai"))
+    monkeypatch.setattr("llm_behavior_diff.runner.AnthropicAdapter", _track_ctor("anthropic"))
+    monkeypatch.setattr("llm_behavior_diff.runner.LiteLLMAdapter", _track_ctor("litellm"))
+    monkeypatch.setattr("llm_behavior_diff.runner.LocalAdapter", _track_ctor("local"))
+
+    openai_adapter = create_adapter("gpt-4o")
+    anthropic_adapter = create_adapter("claude-3-5-sonnet")
+    litellm_adapter = create_adapter("litellm:openai/gpt-4o-mini")
+    local_adapter = create_adapter("local:llama3.1")
+
+    assert isinstance(openai_adapter, FakeOpenAIAdapter)
+    assert isinstance(anthropic_adapter, FakeAnthropicAdapter)
+    assert isinstance(litellm_adapter, FakeLiteLLMAdapter)
+    assert isinstance(local_adapter, FakeLocalAdapter)
+    assert created == [
+        ("openai", "gpt-4o"),
+        ("anthropic", "claude-3-5-sonnet"),
+        ("litellm", "openai/gpt-4o-mini"),
+        ("local", "llama3.1"),
+    ]
 
 
 def test_expected_behavior_coverage_and_category_mapping() -> None:
@@ -156,7 +222,9 @@ def test_expected_behavior_coverage_and_category_mapping() -> None:
     assert score == pytest.approx(0.625, abs=0.01)
 
     assert infer_behavior_category("formatting") == BehaviorCategory.INSTRUCTION_FOLLOWING
-    assert infer_behavior_category("constraint_compliance") == BehaviorCategory.INSTRUCTION_FOLLOWING
+    assert (
+        infer_behavior_category("constraint_compliance") == BehaviorCategory.INSTRUCTION_FOLLOWING
+    )
     assert infer_behavior_category("factual_knowledge") == BehaviorCategory.KNOWLEDGE_CHANGE
 
 
@@ -268,8 +336,13 @@ async def test_runner_heuristics_and_aggregation() -> None:
     assert significance["resamples"] == 5000
     assert significance["seed"] == 42
     assert significance["sample_size"] == 3
+    assert significance["rate_interval_methods"] == ["bootstrap", "wilson"]
     assert 0.0 <= significance["regression_rate"]["point"] <= 1.0
     assert 0.0 <= significance["improvement_rate"]["point"] <= 1.0
+    assert 0.0 <= significance["regression_rate_wilson"]["ci_low"] <= 1.0
+    assert 0.0 <= significance["regression_rate_wilson"]["ci_high"] <= 1.0
+    assert 0.0 <= significance["improvement_rate_wilson"]["ci_low"] <= 1.0
+    assert 0.0 <= significance["improvement_rate_wilson"]["ci_high"] <= 1.0
 
     by_id = {diff.test_id: diff for diff in report.diff_results}
     assert by_id["t_improve"].is_improvement is True
@@ -496,7 +569,9 @@ async def test_runner_cost_tracking_with_pricing_file(tmp_path: Path) -> None:
     assert token_usage["claude-3-sonnet"]["tokens_used"] == 3000
 
     estimated_cost = report.metadata["estimated_cost_usd"]
-    assert estimated_cost["gpt-4o"] == pytest.approx((1000 / 1_000_000) * 10 + (500 / 1_000_000) * 20)
+    assert estimated_cost["gpt-4o"] == pytest.approx(
+        (1000 / 1_000_000) * 10 + (500 / 1_000_000) * 20
+    )
     assert estimated_cost["claude-3-sonnet"] == pytest.approx(
         (2000 / 1_000_000) * 3 + (1000 / 1_000_000) * 12
     )
@@ -679,6 +754,63 @@ async def test_runner_cost_tracking_includes_judge_usage() -> None:
     assert estimated_cost["claude-3-sonnet"] == pytest.approx(0.0021)
     assert estimated_cost["gpt-4o"] == pytest.approx(0.00375)
     assert estimated_cost["total"] == pytest.approx(0.005975)
+
+
+@pytest.mark.asyncio
+async def test_runner_supports_prefixed_models_for_main_and_judge(monkeypatch) -> None:
+    suite = SuiteDefinition(
+        name="prefixed_models_suite",
+        description="Prefixed model ids should route to adapters",
+        test_cases=[
+            SuiteCase(
+                id="t_prefixed",
+                prompt="prompt_prefixed",
+                category="reasoning",
+                expected_behavior="expected behavior",
+            )
+        ],
+    )
+
+    model_a = "litellm:openai/gpt-4o-mini"
+    model_b = "local:llama3.1"
+    judge_model = "litellm:openai/gpt-4o-nano"
+
+    adapters = {
+        model_a: StubAdapter(
+            responses={"prompt_prefixed": "response_a"},
+            metadata={"prompt_prefixed": {"input_tokens": 100, "output_tokens": 40}},
+        ),
+        model_b: StubAdapter(
+            responses={"prompt_prefixed": "response_b"},
+            metadata={"prompt_prefixed": {"input_tokens": 120, "output_tokens": 60}},
+        ),
+        judge_model: PromptAgnosticAdapter(
+            response_text='{"winner":"B","confidence":0.7,"reason":"B is better"}',
+            metadata={"input_tokens": 80, "output_tokens": 20},
+        ),
+    }
+
+    def fake_create_adapter(model_id: str):
+        return adapters[model_id]
+
+    monkeypatch.setattr("llm_behavior_diff.runner.create_adapter", fake_create_adapter)
+
+    runner = BehaviorDiffRunner(
+        model_a=model_a,
+        model_b=model_b,
+        judge_model=judge_model,
+        semantic_comparator=StubComparator(),
+    )
+
+    report = await runner.run_suite(suite)
+    diff = report.diff_results[0]
+
+    assert report.metadata["judge_model"] == judge_model
+    assert diff.metadata["comparators"]["judge"]["decision"] == "judge_improvement"
+    assert report.metadata["token_usage"][model_a]["tokens_used"] == 140
+    assert report.metadata["token_usage"][model_b]["tokens_used"] == 180
+    assert report.metadata["token_usage"][judge_model]["tokens_used"] == 100
+    assert sorted(report.metadata["unpriced_models"]) == sorted([judge_model, model_a, model_b])
 
 
 def test_build_behavior_report_counts_unknown_and_semantic_only_diffs() -> None:

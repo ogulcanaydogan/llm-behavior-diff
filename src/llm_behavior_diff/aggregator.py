@@ -169,4 +169,3 @@ def summarize_comparator_breakdown(diff_results: Iterable[DiffResult]) -> dict[s
             summary[comparator_name][str(decision)] += 1
 
     return {name: dict(counter) for name, counter in summary.items()}
-

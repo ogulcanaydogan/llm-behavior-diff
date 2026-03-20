@@ -96,7 +96,9 @@ class FormatComparator:
         if not constraints:
             return 0.0
 
-        satisfied = sum(1 for constraint, value in constraints if self._check(constraint, value, response))
+        satisfied = sum(
+            1 for constraint, value in constraints if self._check(constraint, value, response)
+        )
         return satisfied / len(constraints)
 
     def _check(self, constraint: str, value: int | bool | None, response: str) -> bool:
@@ -140,4 +142,3 @@ class FormatComparator:
             return lowered in {"yes", "no"}
 
         return False
-

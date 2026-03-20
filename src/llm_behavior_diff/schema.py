@@ -101,9 +101,7 @@ class DiffResult(BaseModel):
         le=1.0,
         description="Confidence in the diff classification (0-1)",
     )
-    explanation: str = Field(
-        default="", description="Human-readable explanation of the difference"
-    )
+    explanation: str = Field(default="", description="Human-readable explanation of the difference")
     metadata: Dict[str, Any] = Field(default_factory=dict)
 
 

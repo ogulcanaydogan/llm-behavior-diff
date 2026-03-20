@@ -63,4 +63,3 @@ class FactualComparator:
         )
         haystack = " ".join([category, tags, metadata_text])
         return any(hint in haystack for hint in _FACTUAL_HINTS)
-

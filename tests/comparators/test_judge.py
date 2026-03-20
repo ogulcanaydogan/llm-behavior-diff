@@ -54,7 +54,9 @@ def test_judge_maps_winner_b_to_improvement() -> None:
 
 def test_judge_maps_tie_to_no_change() -> None:
     comparator = JudgeComparator()
-    result = comparator.compare_from_output('{"winner":"TIE","confidence":0.6,"reason":"Equivalent."}')
+    result = comparator.compare_from_output(
+        '{"winner":"TIE","confidence":0.6,"reason":"Equivalent."}'
+    )
 
     assert result.applies is True
     assert result.decision == "judge_no_change"
@@ -64,7 +66,9 @@ def test_judge_maps_tie_to_no_change() -> None:
 def test_judge_unknown_or_malformed_outputs_become_uncertain() -> None:
     comparator = JudgeComparator()
 
-    unknown = comparator.compare_from_output('{"winner":"UNKNOWN","confidence":0.2,"reason":"Cannot tell"}')
+    unknown = comparator.compare_from_output(
+        '{"winner":"UNKNOWN","confidence":0.2,"reason":"Cannot tell"}'
+    )
     malformed = comparator.compare_from_output("not-json")
 
     assert unknown.decision == "judge_uncertain"
@@ -81,11 +85,9 @@ def test_judge_empty_reason_uses_default_fallback() -> None:
 
 def test_judge_parses_json_code_fence() -> None:
     comparator = JudgeComparator()
-    result = comparator.compare_from_output(
-        """```json
+    result = comparator.compare_from_output("""```json
 {"winner":"A","confidence":0.7,"reason":"A is safer."}
-```"""
-    )
+```""")
 
     assert result.decision == "judge_regression"
     assert result.confidence == 0.7

@@ -10,7 +10,7 @@
 - [Architecture](architecture.md)
 - [API Reference (Manual)](api-reference.md)
 - [Release Runbook](release-runbook.md)
-- [Launch Kit (dev.to + HN)](launch-kit/devto.md)
+- [Launch Kit (current-state dev.to + HN copy)](launch-kit/devto.md)
 
 ## What You Can Do
 
@@ -42,7 +42,11 @@ llm-diff report report.json --format table
 
 ## Notes
 
-- Current provider resolver supports OpenAI (`gpt-*`, `o1-*`, `o3-*`) and Anthropic (`claude-*`).
+- Provider resolver supports OpenAI (`gpt-*`, `o1-*`, `o3-*`) and Anthropic (`claude-*`) legacy ids.
+- Provider resolver also supports explicit prefixed ids:
+  `litellm:<model_ref>` and `local:<model_ref>`.
 - One `--suite` file is processed per `run` command.
 - Optional LLM-as-judge is implemented via `--judge-model` as metadata-only signal.
-- Bootstrap statistical significance reporting is implemented in run metadata and compare output.
+- Bootstrap + Wilson statistical intervals are implemented in run metadata.
+- Compare output includes bootstrap delta CI + permutation p-value.
+- Launch kit content tracks current implementation state (not historical snapshots).

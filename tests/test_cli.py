@@ -158,6 +158,76 @@ test_cases:
     assert captured["judge_model"] == "gpt-4o-mini"
 
 
+def test_run_accepts_prefixed_model_ids(tmp_path: Path, monkeypatch) -> None:
+    suite_path = _write(
+        tmp_path / "suite.yaml",
+        """
+name: prefixed_suite
+description: prefixed model ids
+test_cases:
+  - id: test_1
+    prompt: "hello"
+    category: factual_knowledge
+    expected_behavior: Should answer hello
+""".strip(),
+    )
+    output_path = tmp_path / "report_prefixed.json"
+    captured: dict[str, object] = {}
+
+    class FakeRunner:
+        def __init__(
+            self,
+            model_a: str,
+            model_b: str,
+            judge_model: str | None = None,
+            max_workers: int = 4,
+            continue_on_error: bool = False,
+            max_retries: int = 3,
+            rate_limit_rps: float = 0.0,
+            pricing_file: str | None = None,
+        ) -> None:
+            captured["model_a"] = model_a
+            captured["model_b"] = model_b
+            captured["judge_model"] = judge_model
+            del max_workers, continue_on_error, max_retries, rate_limit_rps, pricing_file
+
+        async def run_suite(self, suite_obj):
+            return BehaviorReport(
+                model_a=captured["model_a"],
+                model_b=captured["model_b"],
+                suite_name=suite_obj.name,
+                total_tests=len(suite_obj.test_cases),
+                total_diffs=0,
+                regressions=0,
+                improvements=0,
+                duration_seconds=0.1,
+            )
+
+    monkeypatch.setattr("llm_behavior_diff.cli.BehaviorDiffRunner", FakeRunner)
+
+    result = CliRunner().invoke(
+        main,
+        [
+            "run",
+            "--model-a",
+            "litellm:openai/gpt-4o-mini",
+            "--model-b",
+            "local:llama3.1",
+            "--judge-model",
+            "litellm:openai/gpt-4o-nano",
+            "--suite",
+            str(suite_path),
+            "--output",
+            str(output_path),
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert captured["model_a"] == "litellm:openai/gpt-4o-mini"
+    assert captured["model_b"] == "local:llama3.1"
+    assert captured["judge_model"] == "litellm:openai/gpt-4o-nano"
+
+
 def test_compare_prints_delta_and_writes_markdown(tmp_path: Path) -> None:
     report_a_path = tmp_path / "report_a.json"
     report_b_path = tmp_path / "report_b.json"
@@ -234,6 +304,7 @@ def test_report_table_and_markdown_include_significance_when_available(tmp_path:
                 "resamples": 5000,
                 "seed": 42,
                 "sample_size": 10,
+                "rate_interval_methods": ["bootstrap", "wilson"],
                 "regression_rate": {
                     "point": 0.1,
                     "ci_low": 0.0,
@@ -246,6 +317,16 @@ def test_report_table_and_markdown_include_significance_when_available(tmp_path:
                     "ci_high": 0.3,
                     "p_value_two_sided": 0.2,
                 },
+                "regression_rate_wilson": {
+                    "point": 0.1,
+                    "ci_low": 0.02,
+                    "ci_high": 0.32,
+                },
+                "improvement_rate_wilson": {
+                    "point": 0.1,
+                    "ci_low": 0.02,
+                    "ci_high": 0.32,
+                },
             }
         },
     )
@@ -255,6 +336,8 @@ def test_report_table_and_markdown_include_significance_when_available(tmp_path:
     assert table_result.exit_code == 0
     assert "Regression Rate CI (95%)" in table_result.output
     assert "Improvement Rate CI (95%)" in table_result.output
+    assert "Regression Rate Wilson CI (95%)" in table_result.output
+    assert "Improvement Rate Wilson CI (95%)" in table_result.output
 
     md_result = CliRunner().invoke(
         main,
@@ -264,6 +347,112 @@ def test_report_table_and_markdown_include_significance_when_available(tmp_path:
     markdown_content = markdown_path.read_text(encoding="utf-8")
     assert "Regression Rate CI (95%)" in markdown_content
     assert "Improvement Rate CI (95%)" in markdown_content
+    assert "Regression Rate Wilson CI (95%)" in markdown_content
+    assert "Improvement Rate Wilson CI (95%)" in markdown_content
+
+
+def test_report_html_contains_interactive_explorer_markers(tmp_path: Path) -> None:
+    report_path = tmp_path / "interactive_report.json"
+    html_path = tmp_path / "interactive_report.html"
+    diff_results = [
+        DiffResult(
+            test_id="t_1",
+            model_a="gpt-4o",
+            model_b="gpt-4.5",
+            response_a="A",
+            response_b="B",
+            is_semantically_same=False,
+            semantic_similarity=0.12,
+            behavior_category=BehaviorCategory.INSTRUCTION_FOLLOWING,
+            is_regression=True,
+            is_improvement=False,
+            confidence=0.87,
+            explanation="B fails formatting constraints.",
+            metadata={"comparators": {"semantic": {"decision": "semantic_diff"}}},
+        )
+    ]
+    report = BehaviorReport(
+        model_a="gpt-4o",
+        model_b="gpt-4.5",
+        suite_name="suite",
+        total_tests=1,
+        total_diffs=1,
+        regressions=1,
+        improvements=0,
+        duration_seconds=1.5,
+        diff_results=diff_results,
+        regression_by_category={BehaviorCategory.INSTRUCTION_FOLLOWING: 1},
+        metadata={
+            "estimated_cost_usd": {"total": 0.12345678},
+            "pricing_source": "builtin",
+            "processed_tests": 1,
+            "failed_tests": 0,
+            "significance": {
+                "method": "bootstrap",
+                "confidence_level": 0.95,
+                "resamples": 5000,
+                "seed": 42,
+                "sample_size": 1,
+                "regression_rate": {
+                    "point": 1.0,
+                    "ci_low": 1.0,
+                    "ci_high": 1.0,
+                    "p_value_two_sided": 0.0,
+                },
+                "improvement_rate": {
+                    "point": 0.0,
+                    "ci_low": 0.0,
+                    "ci_high": 0.0,
+                    "p_value_two_sided": 1.0,
+                },
+            },
+        },
+    )
+    report_path.write_text(json.dumps(report.model_dump(mode="json"), indent=2), encoding="utf-8")
+
+    result = CliRunner().invoke(
+        main,
+        ["report", str(report_path), "--format", "html", "--output", str(html_path)],
+    )
+
+    assert result.exit_code == 0
+    html_content = html_path.read_text(encoding="utf-8")
+    assert 'data-test="kpi-cards"' in html_content
+    assert 'data-test="explorer-filters"' in html_content
+    assert 'data-test="diff-explorer-table"' in html_content
+    assert 'data-test="details-panel"' in html_content
+    assert "const diffData = [" in html_content
+    assert "Estimated Cost (USD)" in html_content
+    assert "bootstrap (CL=0.95, B=5000, seed=42)" in html_content
+
+
+def test_report_html_handles_empty_diff_rows_and_missing_metadata(tmp_path: Path) -> None:
+    report_path = tmp_path / "empty_report.json"
+    html_path = tmp_path / "empty_report.html"
+    report = BehaviorReport(
+        model_a="gpt-4o",
+        model_b="gpt-4.5",
+        suite_name="suite",
+        total_tests=0,
+        total_diffs=0,
+        regressions=0,
+        improvements=0,
+        duration_seconds=0.0,
+        diff_results=[],
+        metadata={},
+    )
+    report_path.write_text(json.dumps(report.model_dump(mode="json"), indent=2), encoding="utf-8")
+
+    result = CliRunner().invoke(
+        main,
+        ["report", str(report_path), "--format", "html", "--output", str(html_path)],
+    )
+
+    assert result.exit_code == 0
+    html_content = html_path.read_text(encoding="utf-8")
+    assert "No diff rows for this report." in html_content
+    assert ">N/A<" in html_content
+    assert 'data-test="diff-explorer-table"' in html_content
 
 
 def test_compare_includes_significance_rows_when_diff_results_available(tmp_path: Path) -> None:
@@ -341,6 +530,86 @@ def test_compare_includes_significance_rows_when_diff_results_available(tmp_path
     assert result.exit_code == 0
     assert "Regression Delta CI (95%)" in result.output
     assert "Improvement Delta CI (95%)" in result.output
+    assert "Regression Delta Permutation p-value" in result.output
     compare_content = compare_md_path.read_text(encoding="utf-8")
     assert "Regression Delta Significant?" in compare_content
     assert "Improvement Delta Significant?" in compare_content
+    assert "Regression Delta Permutation p-value" in compare_content
+    assert "Improvement Delta Permutation p-value" in compare_content
+
+
+def test_compare_significance_fallback_when_diff_results_missing(tmp_path: Path) -> None:
+    report_a_path = tmp_path / "a_no_diff.json"
+    report_b_path = tmp_path / "b_no_diff.json"
+
+    report_a = BehaviorReport(
+        model_a="gpt-4o",
+        model_b="gpt-4.5",
+        suite_name="suite",
+        total_tests=10,
+        total_diffs=2,
+        regressions=1,
+        improvements=1,
+        duration_seconds=1.0,
+        diff_results=[],
+    )
+    report_b = BehaviorReport(
+        model_a="gpt-4o",
+        model_b="gpt-4.5",
+        suite_name="suite",
+        total_tests=10,
+        total_diffs=3,
+        regressions=2,
+        improvements=1,
+        duration_seconds=1.0,
+        diff_results=[],
+    )
+
+    report_a_path.write_text(
+        json.dumps(report_a.model_dump(mode="json"), indent=2),
+        encoding="utf-8",
+    )
+    report_b_path.write_text(
+        json.dumps(report_b.model_dump(mode="json"), indent=2),
+        encoding="utf-8",
+    )
+
+    result = CliRunner().invoke(main, ["compare", str(report_a_path), str(report_b_path)])
+
+    assert result.exit_code == 0
+    assert (
+        "Significance not available: diff_results missing or empty in one/both reports."
+        in result.output
+    )
+
+
+def test_report_table_backward_compatible_without_wilson_fields(tmp_path: Path) -> None:
+    report_path = tmp_path / "legacy_significance_report.json"
+    report = BehaviorReport(
+        model_a="gpt-4o",
+        model_b="gpt-4.5",
+        suite_name="suite",
+        total_tests=5,
+        total_diffs=1,
+        regressions=1,
+        improvements=0,
+        duration_seconds=0.5,
+        metadata={
+            "significance": {
+                "method": "bootstrap",
+                "confidence_level": 0.95,
+                "resamples": 5000,
+                "seed": 42,
+                "sample_size": 5,
+                "regression_rate": {"point": 0.2, "ci_low": 0.0, "ci_high": 0.4},
+                "improvement_rate": {"point": 0.0, "ci_low": 0.0, "ci_high": 0.2},
+            }
+        },
+    )
+    report_path.write_text(json.dumps(report.model_dump(mode="json"), indent=2), encoding="utf-8")
+
+    result = CliRunner().invoke(main, ["report", str(report_path), "--format", "table"])
+
+    assert result.exit_code == 0
+    assert "Regression Rate CI (95%)" in result.output
+    assert "Improvement Rate CI (95%)" in result.output

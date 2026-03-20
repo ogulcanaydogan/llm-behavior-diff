@@ -44,4 +44,3 @@ def score_expected_behavior_coverage(expected_behavior: str, response: str) -> f
 def score_confidence_from_delta(delta: float, minimum: float = 0.5) -> float:
     """Convert score delta magnitude into a normalized confidence value."""
     return min(1.0, max(minimum, abs(delta) + minimum))
-

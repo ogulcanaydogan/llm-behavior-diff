@@ -18,7 +18,9 @@ def _case(category: str = "reasoning") -> SuiteCase:
     )
 
 
-def _result(*, applies: bool, decision: str, delta: float, confidence: float = 0.8) -> ComparatorResult:
+def _result(
+    *, applies: bool, decision: str, delta: float, confidence: float = 0.8
+) -> ComparatorResult:
     return ComparatorResult(
         score_a=0.0,
         score_b=0.0,

@@ -1,6 +1,5 @@
 """Tests for schema definitions."""
 
-
 from llm_behavior_diff.schema import (
     BehaviorCategory,
     BehaviorReport,
