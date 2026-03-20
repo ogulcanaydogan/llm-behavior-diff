@@ -29,6 +29,9 @@ concurrency:
 jobs:
   publish:
     runs-on: ubuntu-latest
+    env:
+      TEST_PYPI_API_TOKEN: ${{ secrets.TEST_PYPI_API_TOKEN }}
+      PYPI_API_TOKEN: ${{ secrets.PYPI_API_TOKEN }}
 
     steps:
       - uses: actions/checkout@v4
@@ -91,24 +94,24 @@ jobs:
           llm-diff --help
 
       - name: Publish to TestPyPI (OIDC)
-        if: ${{ inputs.target == 'testpypi' && secrets.TEST_PYPI_API_TOKEN == '' }}
+        if: ${{ inputs.target == 'testpypi' && env.TEST_PYPI_API_TOKEN == '' }}
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           repository-url: https://test.pypi.org/legacy/
 
       - name: Publish to TestPyPI (token fallback)
-        if: ${{ inputs.target == 'testpypi' && secrets.TEST_PYPI_API_TOKEN != '' }}
+        if: ${{ inputs.target == 'testpypi' && env.TEST_PYPI_API_TOKEN != '' }}
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           repository-url: https://test.pypi.org/legacy/
-          password: ${{ secrets.TEST_PYPI_API_TOKEN }}
+          password: ${{ env.TEST_PYPI_API_TOKEN }}
 
       - name: Publish to PyPI (OIDC)
-        if: ${{ inputs.target == 'pypi' && secrets.PYPI_API_TOKEN == '' }}
+        if: ${{ inputs.target == 'pypi' && env.PYPI_API_TOKEN == '' }}
         uses: pypa/gh-action-pypi-publish@release/v1
 
       - name: Publish to PyPI (token fallback)
-        if: ${{ inputs.target == 'pypi' && secrets.PYPI_API_TOKEN != '' }}
+        if: ${{ inputs.target == 'pypi' && env.PYPI_API_TOKEN != '' }}
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
-          password: ${{ secrets.PYPI_API_TOKEN }}
+          password: ${{ env.PYPI_API_TOKEN }}
