@@ -8,7 +8,8 @@ version = "0.1.0"
 description = "Behavioral regression testing tool for LLM model upgrades. Compare model versions and detect behavioral changes."
 readme = "README.md"
 requires-python = ">=3.11"
-license = {text = "MIT"}
+license = "MIT"
+license-files = ["LICENSE"]
 authors = [
     {name = "LLM Behavior Diff Contributors"}
 ]
@@ -16,7 +17,6 @@ keywords = ["llm", "testing", "regression", "model-comparison", "mlops"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
-    "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
