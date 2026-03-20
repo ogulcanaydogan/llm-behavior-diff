@@ -15,6 +15,7 @@ import click
 from rich.console import Console
 from rich.table import Table
 
+from .policy import SUPPORTED_POLICIES, evaluate_report_policy
 from .runner import BehaviorDiffRunner, load_test_suite
 from .schema import BehaviorReport
 from .statistics import (
@@ -330,6 +331,62 @@ def compare(result_a: str, result_b: str, output: Optional[str]) -> None:
     console.print("[green]Comparison complete[/green]")
 
 
+@main.command()
+@click.argument("report_file", type=click.Path(exists=True))
+@click.option(
+    "--policy",
+    type=click.Choice(list(SUPPORTED_POLICIES)),
+    default="strict",
+    show_default=True,
+    help="Risk-tier gate policy",
+)
+@click.option(
+    "--format",
+    "output_format",
+    type=click.Choice(["table", "json"]),
+    default="table",
+    show_default=True,
+    help="Output format",
+)
+@click.option(
+    "--output",
+    "-o",
+    type=click.Path(),
+    help="Optional output file path",
+)
+def gate(report_file: str, policy: str, output_format: str, output: Optional[str]) -> None:
+    """
+    Evaluate one report against a deterministic gate policy.
+
+    Example:
+        llm-diff gate report.json --policy strict
+    """
+    report_obj = _load_report(report_file)
+    try:
+        evaluation = evaluate_report_policy(report_obj, policy)
+    except Exception as exc:
+        console.print(f"[red]Error evaluating policy: {exc}[/red]")
+        raise click.Abort() from exc
+
+    if output_format == "table":
+        _print_gate_table(report_obj, evaluation)
+        if output:
+            Path(output).write_text(
+                _format_gate_text(report_file, report_obj, evaluation),
+                encoding="utf-8",
+            )
+            console.print(f"[green]Written to {output}[/green]")
+    else:
+        content = json.dumps(evaluation, indent=2)
+        _output(content, output)
+
+    if not bool(evaluation.get("passed", False)):
+        console.print("[red]Gate failed[/red]")
+        raise click.exceptions.Exit(2)
+
+    console.print("[green]Gate passed[/green]")
+
+
 def _print_table_report(report: BehaviorReport) -> None:
     """Print report as rich table."""
     table = Table(title=f"Behavioral Diff Report: {report.model_a} vs {report.model_b}")
@@ -391,6 +448,88 @@ def _print_table_report(report: BehaviorReport) -> None:
         console.print("\n[bold]Top Improvement Categories:[/bold]")
         for category, count in report.top_improvement_categories(5):
             console.print(f"  {category.value}: {count}")
+
+
+def _print_gate_table(report: BehaviorReport, evaluation: dict[str, Any]) -> None:
+    """Print gate result as a rich table."""
+    table = Table(title="Risk-Tier Gate Result")
+    table.add_column("Field", style="cyan")
+    table.add_column("Value", style="magenta")
+
+    table.add_row("Suite", report.suite_name)
+    table.add_row("Policy", str(evaluation.get("policy", "unknown")))
+    table.add_row(
+        "Passed",
+        "[green]yes[/green]" if bool(evaluation.get("passed")) else "[red]no[/red]",
+    )
+
+    observed = evaluation.get("observed", {})
+    thresholds = evaluation.get("thresholds", {})
+    reasons = evaluation.get("reasons", [])
+
+    if isinstance(observed, dict):
+        table.add_row("Total Tests", str(observed.get("total_tests", 0)))
+        table.add_row("Regressions", str(observed.get("regressions", 0)))
+        regression_by_category = observed.get("regression_by_category", {})
+        if isinstance(regression_by_category, dict):
+            table.add_row(
+                "Regression by Category",
+                (
+                    json.dumps(regression_by_category, sort_keys=True)
+                    if regression_by_category
+                    else "{}"
+                ),
+            )
+
+    if isinstance(thresholds, dict):
+        for key, value in thresholds.items():
+            label = key.replace("_", " ").title()
+            table.add_row(label, json.dumps(value) if isinstance(value, list) else str(value))
+
+    if isinstance(reasons, list):
+        table.add_row("Reasons", "\n".join(str(reason) for reason in reasons))
+
+    console.print(table)
+
+
+def _format_gate_text(report_file: str, report: BehaviorReport, evaluation: dict[str, Any]) -> str:
+    """Format gate result as plain markdown-like text."""
+    observed = evaluation.get("observed", {})
+    thresholds = evaluation.get("thresholds", {})
+    reasons = evaluation.get("reasons", [])
+
+    lines = [
+        "# Risk-Tier Gate Result",
+        "",
+        f"- Report: `{report_file}`",
+        f"- Suite: `{report.suite_name}`",
+        f"- Policy: `{evaluation.get('policy', 'unknown')}`",
+        f"- Passed: `{bool(evaluation.get('passed', False))}`",
+    ]
+
+    if isinstance(observed, dict):
+        lines.extend(
+            [
+                f"- Total Tests: {observed.get('total_tests', 0)}",
+                f"- Regressions: {observed.get('regressions', 0)}",
+                "- Regression by Category: "
+                + json.dumps(observed.get("regression_by_category", {}), sort_keys=True),
+            ]
+        )
+
+    if isinstance(thresholds, dict):
+        lines.append("")
+        lines.append("## Thresholds")
+        for key, value in thresholds.items():
+            lines.append(f"- {key}: {value}")
+
+    if isinstance(reasons, list):
+        lines.append("")
+        lines.append("## Reasons")
+        for reason in reasons:
+            lines.append(f"- {reason}")
+
+    return "\n".join(lines) + "\n"
 
 
 def _format_markdown(report: BehaviorReport) -> str:

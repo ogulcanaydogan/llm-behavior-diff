@@ -22,6 +22,15 @@ on:
         required: false
         default: 4
         type: number
+      gate_policy:
+        description: "Risk-tier gate policy"
+        required: false
+        default: strict
+        type: choice
+        options:
+          - strict
+          - balanced
+          - permissive
 
   workflow_call:
     inputs:
@@ -38,6 +47,10 @@ on:
         required: false
         type: number
         default: 4
+      gate_policy:
+        required: false
+        type: string
+        default: strict
     secrets:
       OPENAI_API_KEY:
         required: false
@@ -61,6 +74,7 @@ jobs:
       MODEL_B: ${{ inputs.model_b }}
       SUITE_LIST: ${{ inputs.suite_list }}
       MAX_WORKERS: ${{ inputs.max_workers }}
+      GATE_POLICY: ${{ inputs.gate_policy }}
 
     steps:
       - uses: actions/checkout@v4
@@ -152,60 +166,88 @@ jobs:
           path: artifacts/reports/
           if-no-files-found: error
 
-      - name: Aggregate regressions and apply gate
+      - name: Aggregate suite results and apply gate policy
         run: |
           python - <<'PY'
           import glob
           import json
           import os
 
+          from llm_behavior_diff.policy import evaluate_report_collection
+          from llm_behavior_diff.schema import BehaviorReport
+
           report_paths = sorted(glob.glob("artifacts/reports/*.json"))
           if not report_paths:
               raise SystemExit("No reports found to evaluate regression gate.")
 
-          total_tests = 0
-          total_regressions = 0
-          total_improvements = 0
-          rows = []
-
+          policy = os.environ.get("GATE_POLICY", "strict").strip().lower() or "strict"
+          reports = []
           for path in report_paths:
               with open(path, encoding="utf-8") as f:
-                  report = json.load(f)
-              suite = report.get("suite_name", os.path.basename(path))
-              tests = int(report.get("total_tests", 0) or 0)
-              regressions = int(report.get("regressions", 0) or 0)
-              improvements = int(report.get("improvements", 0) or 0)
+                  reports.append(BehaviorReport(**json.load(f)))
 
-              total_tests += tests
-              total_regressions += regressions
-              total_improvements += improvements
-              rows.append((suite, tests, regressions, improvements))
+          collection_eval = evaluate_report_collection(reports, policy)
+          total_tests = int(collection_eval["totals"]["tests"])
+          total_regressions = int(collection_eval["totals"]["regressions"])
+          total_improvements = sum(int(report.improvements or 0) for report in reports)
+          failed_suites = list(collection_eval["failed_suites"])
+
+          report_by_suite = {report.suite_name: report for report in reports}
+          rows = []
+          for suite_eval in collection_eval["suite_results"]:
+              suite = str(suite_eval["suite_name"])
+              report = report_by_suite[suite]
+              tests = int(report.total_tests or 0)
+              regressions = int(report.regressions or 0)
+              improvements = int(report.improvements or 0)
+              passed = bool(suite_eval["passed"])
+              thresholds = suite_eval.get("thresholds", {})
+              reasons = suite_eval.get("reasons", [])
+              reasons_text = "; ".join(str(reason) for reason in reasons)
+              allowed = (
+                  thresholds.get("allowed_regressions", "n/a")
+                  if isinstance(thresholds, dict)
+                  else "n/a"
+              )
+              rows.append(
+                  (
+                      suite,
+                      tests,
+                      regressions,
+                      improvements,
+                      "PASS" if passed else "FAIL",
+                      allowed,
+                      reasons_text,
+                  )
+              )
 
           summary_lines = [
               "## Model Upgrade Regression Gate",
               "",
               f"- Model A: `{os.environ.get('MODEL_A', '')}`",
               f"- Model B: `{os.environ.get('MODEL_B', '')}`",
+              f"- Gate Policy: `{policy}`",
               f"- Total Tests: {total_tests}",
               f"- Total Regressions: {total_regressions}",
               f"- Total Improvements: {total_improvements}",
               "",
-              "| Suite | Tests | Regressions | Improvements |",
-              "| --- | ---: | ---: | ---: |",
+              "| Suite | Tests | Regressions | Improvements | Policy Result | Allowed Regressions | Reasons |",
+              "| --- | ---: | ---: | ---: | --- | ---: | --- |",
           ]
 
-          for suite, tests, regressions, improvements in rows:
+          for suite, tests, regressions, improvements, result, allowed, reasons_text in rows:
               summary_lines.append(
-                  f"| {suite} | {tests} | {regressions} | {improvements} |"
+                  f"| {suite} | {tests} | {regressions} | {improvements} | {result} | {allowed} | {reasons_text} |"
               )
 
           with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as f:
               f.write("\n".join(summary_lines) + "\n")
 
-          if total_regressions > 0:
+          if failed_suites:
+              suites = ", ".join(failed_suites)
               raise SystemExit(
-                  f"Regression gate failed: detected {total_regressions} regression(s)."
+                  f"Regression gate failed under '{policy}' policy. Failed suite(s): {suites}"
               )
 
-          print("Regression gate passed with zero regressions.")
+          print(f"Regression gate passed under '{policy}' policy.")
           PY

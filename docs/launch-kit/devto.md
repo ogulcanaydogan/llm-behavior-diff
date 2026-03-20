@@ -100,7 +100,7 @@ Implemented:
 
 ## Planned Next
 
-- richer release-policy templates (risk-tier based default gates)
+- organization-specific policy packs and custom policy plugin hooks
 - optional external factual validation connectors
 - broader enterprise reporting/export integrations
 

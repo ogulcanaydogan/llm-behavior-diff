@@ -16,6 +16,7 @@ Deterministic behavioral regression testing for LLM model upgrades.
 | Deterministic comparator pipeline | Implemented | semantic, factual, format, behavioral |
 | Optional LLM-as-judge | Implemented | metadata-only, never overrides final decision |
 | Statistical significance (bootstrap + Wilson + permutation) | Implemented | run metadata + compare delta rows |
+| Risk-tier gate policies | Implemented | strict, balanced, permissive for CLI and CI |
 | CI release checks | Implemented | quality, build/twine, regression workflow |
 
 ## Why This Exists
@@ -42,6 +43,7 @@ Ad-hoc prompt checks miss these patterns and are hard to reproduce in CI.
 - JSON report artifacts for CI and governance workflows
 - Report rendering in `table`, `json`, `markdown`, and interactive self-contained `html`
 - Run-to-run compare command with delta metrics
+- Policy gate command for deterministic release decisions (`strict|balanced|permissive`)
 
 ## Installation
 
@@ -121,6 +123,13 @@ llm-diff compare previous_run.json candidate_run.json
 llm-diff compare previous_run.json candidate_run.json -o comparison.md
 ```
 
+### 7) Evaluate risk-tier gate policy
+
+```bash
+llm-diff gate candidate_run.json --policy strict
+llm-diff gate candidate_run.json --policy balanced --format json -o gate_result.json
+```
+
 ## How It Works
 
 1. Load and validate one suite YAML.
@@ -180,6 +189,7 @@ compare output:
 - Enable retry/rate-limit defaults for provider stability.
 - Track `regressions`, `failed_tests`, and estimated cost in artifacts.
 - Gate upgrades with multi-suite runs in `model-upgrade-regression.yml`.
+- Use `llm-diff gate` locally with the same policy tier used in CI.
 
 ## Built-In Suites
 
@@ -210,13 +220,21 @@ Render one run report as `table | json | html | markdown`.
 
 Compare two run reports and print/write metric deltas.
 
+### `llm-diff gate`
+
+Evaluate one run report with deterministic policy templates:
+
+- `strict`: regressions must be `0`
+- `balanced`: low regression budget + critical-category hard-fail
+- `permissive`: wider budget + targeted critical-category limits
+
 ## Release & CI
 
 - `ci.yml`: quality checks on `master` push + PR (`ruff`, `black --check`, `mypy`, `pytest`)
 - `release-check.yml`: build/twine/wheel smoke checks
 - `publish-pypi.yml`: manual TestPyPI/PyPI publish flow
 - `docker-image.yml`: PR/master build+smoke, optional manual GHCR push
-- `model-upgrade-regression.yml`: manual/reusable regression gate (fails on any regression)
+- `model-upgrade-regression.yml`: manual/reusable regression gate (`gate_policy`: `strict|balanced|permissive`, default `strict`)
 
 Local parity commands:
 
@@ -248,6 +266,7 @@ Implemented now:
 - retry/rate-limit/cost tracking
 - bootstrap + Wilson confidence intervals (run metadata)
 - bootstrap delta CI + permutation p-value (compare rows)
+- risk-tier gate policies (CLI + model-upgrade workflow)
 - suite templates and CI distribution workflows
 
 ## Contributing
