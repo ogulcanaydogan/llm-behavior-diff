@@ -222,11 +222,13 @@ Compare two run reports and print/write metric deltas.
 
 ### `llm-diff gate`
 
-Evaluate one run report with deterministic policy templates:
+Evaluate one run report with deterministic policy tiers:
 
 - `strict`: regressions must be `0`
 - `balanced`: low regression budget + critical-category hard-fail
 - `permissive`: wider budget + targeted critical-category limits
+- `--policy-pack`: `core` (default), `risk_averse`, `velocity`
+- `--policy-file`: optional custom YAML policy file (`version: v1`) that overrides pack selection for that run
 
 ## Release & CI
 
@@ -234,7 +236,7 @@ Evaluate one run report with deterministic policy templates:
 - `release-check.yml`: build/twine/wheel smoke checks
 - `publish-pypi.yml`: manual TestPyPI/PyPI publish flow
 - `docker-image.yml`: PR/master build+smoke, optional manual GHCR push
-- `model-upgrade-regression.yml`: manual/reusable regression gate (`gate_policy`: `strict|balanced|permissive`, default `strict`)
+- `model-upgrade-regression.yml`: manual/reusable regression gate (`gate_policy`, `gate_policy_pack`, optional `gate_policy_file`; default `strict + core`)
 - Node24 deprecation closure: workflows keep `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24=true` and now run on Node24-ready major action pins.
 - Workflow security hardening: all third-party actions are pinned to full commit SHAs; Dependabot auto-updates `github-actions` minor/patch versions weekly, while major bumps are handled in planned maintenance windows.
 
