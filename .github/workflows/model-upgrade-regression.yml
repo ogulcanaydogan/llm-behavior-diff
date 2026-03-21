@@ -31,6 +31,19 @@ on:
           - strict
           - balanced
           - permissive
+      gate_policy_pack:
+        description: "Policy pack"
+        required: false
+        default: core
+        type: choice
+        options:
+          - core
+          - risk_averse
+          - velocity
+      gate_policy_file:
+        description: "Optional repo-relative custom policy YAML file (takes precedence)"
+        required: false
+        type: string
 
   workflow_call:
     inputs:
@@ -51,6 +64,13 @@ on:
         required: false
         type: string
         default: strict
+      gate_policy_pack:
+        required: false
+        type: string
+        default: core
+      gate_policy_file:
+        required: false
+        type: string
     secrets:
       OPENAI_API_KEY:
         required: false
@@ -79,6 +99,8 @@ jobs:
       SUITE_LIST: ${{ inputs.suite_list }}
       MAX_WORKERS: ${{ inputs.max_workers }}
       GATE_POLICY: ${{ inputs.gate_policy }}
+      GATE_POLICY_PACK: ${{ inputs.gate_policy_pack }}
+      GATE_POLICY_FILE: ${{ inputs.gate_policy_file }}
 
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
@@ -185,16 +207,26 @@ jobs:
               raise SystemExit("No reports found to evaluate regression gate.")
 
           policy = os.environ.get("GATE_POLICY", "strict").strip().lower() or "strict"
+          policy_pack = os.environ.get("GATE_POLICY_PACK", "core").strip().lower() or "core"
+          policy_file_value = os.environ.get("GATE_POLICY_FILE", "").strip()
+          policy_file = policy_file_value if policy_file_value else None
           reports = []
           for path in report_paths:
               with open(path, encoding="utf-8") as f:
                   reports.append(BehaviorReport(**json.load(f)))
 
-          collection_eval = evaluate_report_collection(reports, policy)
+          collection_eval = evaluate_report_collection(
+              reports,
+              policy,
+              policy_pack=policy_pack,
+              policy_file=policy_file,
+          )
           total_tests = int(collection_eval["totals"]["tests"])
           total_regressions = int(collection_eval["totals"]["regressions"])
           total_improvements = sum(int(report.improvements or 0) for report in reports)
           failed_suites = list(collection_eval["failed_suites"])
+          resolved_policy_pack = str(collection_eval.get("policy_pack", policy_pack))
+          policy_source = str(collection_eval.get("policy_source", f"builtin:{policy_pack}"))
 
           report_by_suite = {report.suite_name: report for report in reports}
           rows = []
@@ -231,6 +263,8 @@ jobs:
               f"- Model A: `{os.environ.get('MODEL_A', '')}`",
               f"- Model B: `{os.environ.get('MODEL_B', '')}`",
               f"- Gate Policy: `{policy}`",
+              f"- Policy Pack: `{resolved_policy_pack}`",
+              f"- Policy Source: `{policy_source}`",
               f"- Total Tests: {total_tests}",
               f"- Total Regressions: {total_regressions}",
               f"- Total Improvements: {total_improvements}",

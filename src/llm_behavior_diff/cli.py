@@ -15,7 +15,7 @@ import click
 from rich.console import Console
 from rich.table import Table
 
-from .policy import SUPPORTED_POLICIES, evaluate_report_policy
+from .policy import SUPPORTED_POLICIES, SUPPORTED_POLICY_PACKS, evaluate_report_policy
 from .runner import BehaviorDiffRunner, load_test_suite
 from .schema import BehaviorReport
 from .statistics import (
@@ -341,6 +341,18 @@ def compare(result_a: str, result_b: str, output: Optional[str]) -> None:
     help="Risk-tier gate policy",
 )
 @click.option(
+    "--policy-pack",
+    type=click.Choice(list(SUPPORTED_POLICY_PACKS)),
+    default="core",
+    show_default=True,
+    help="Built-in policy pack",
+)
+@click.option(
+    "--policy-file",
+    type=click.Path(exists=True, dir_okay=False),
+    help="Optional custom policy YAML file (takes precedence over --policy-pack)",
+)
+@click.option(
     "--format",
     "output_format",
     type=click.Choice(["table", "json"]),
@@ -354,16 +366,29 @@ def compare(result_a: str, result_b: str, output: Optional[str]) -> None:
     type=click.Path(),
     help="Optional output file path",
 )
-def gate(report_file: str, policy: str, output_format: str, output: Optional[str]) -> None:
+def gate(
+    report_file: str,
+    policy: str,
+    policy_pack: str,
+    policy_file: Optional[str],
+    output_format: str,
+    output: Optional[str],
+) -> None:
     """
     Evaluate one report against a deterministic gate policy.
 
     Example:
         llm-diff gate report.json --policy strict
+        llm-diff gate report.json --policy balanced --policy-pack risk_averse
     """
     report_obj = _load_report(report_file)
     try:
-        evaluation = evaluate_report_policy(report_obj, policy)
+        evaluation = evaluate_report_policy(
+            report_obj,
+            policy,
+            policy_pack=policy_pack,
+            policy_file=policy_file,
+        )
     except Exception as exc:
         console.print(f"[red]Error evaluating policy: {exc}[/red]")
         raise click.Abort() from exc
@@ -458,6 +483,8 @@ def _print_gate_table(report: BehaviorReport, evaluation: dict[str, Any]) -> Non
 
     table.add_row("Suite", report.suite_name)
     table.add_row("Policy", str(evaluation.get("policy", "unknown")))
+    table.add_row("Policy Pack", str(evaluation.get("policy_pack", "core")))
+    table.add_row("Policy Source", str(evaluation.get("policy_source", "builtin:core")))
     table.add_row(
         "Passed",
         "[green]yes[/green]" if bool(evaluation.get("passed")) else "[red]no[/red]",
@@ -504,6 +531,8 @@ def _format_gate_text(report_file: str, report: BehaviorReport, evaluation: dict
         f"- Report: `{report_file}`",
         f"- Suite: `{report.suite_name}`",
         f"- Policy: `{evaluation.get('policy', 'unknown')}`",
+        f"- Policy Pack: `{evaluation.get('policy_pack', 'core')}`",
+        f"- Policy Source: `{evaluation.get('policy_source', 'builtin:core')}`",
         f"- Passed: `{bool(evaluation.get('passed', False))}`",
     ]
 
