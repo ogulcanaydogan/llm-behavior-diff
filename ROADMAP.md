@@ -95,6 +95,11 @@ The `git diff` for LLM behavior. When you upgrade a model version, know exactly 
 - [x] mkdocs site
 - [x] Launch post for dev.to / HN
 
+## Phase 10: Policy Extensibility (Completed)
+- [x] Policy packs for deterministic gate engine (`core`, `risk_averse`, `velocity`)
+- [x] Custom YAML policy hook (`version: v1`) with strict validation
+- [x] CLI + model-upgrade workflow parity for pack/file policy resolution
+
 ## Remaining Planned Items
 No open roadmap items at this time. Future work will be tracked as new phases.
 

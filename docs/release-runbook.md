@@ -80,6 +80,8 @@ Inputs:
 - `suite_list` (optional comma-separated override)
 - `max_workers` (optional, default `4`)
 - `gate_policy` (optional, default `strict`): `strict|balanced|permissive`
+- `gate_policy_pack` (optional, default `core`): `core|risk_averse|velocity`
+- `gate_policy_file` (optional): repo-relative custom policy YAML path (takes precedence over pack)
 
 Default suite set when `suite_list` is empty:
 
@@ -92,10 +94,12 @@ Default suite set when `suite_list` is empty:
 Gate policy:
 
 - Workflow evaluates each suite report with selected policy.
+- Policy resolution supports built-in packs (`core`, `risk_averse`, `velocity`) and optional custom YAML file (`version: v1`).
+- When `gate_policy_file` is set, file-based policy overrides `gate_policy_pack`.
 - Any suite-level policy fail causes workflow fail.
-- Defaults to `strict` when no `gate_policy` is provided.
+- Defaults to `strict + core` when no gate inputs are provided.
 
-Policy templates:
+Core policy template:
 
 - `strict`: fail when `regressions > 0`
 - `balanced`:
@@ -107,6 +111,11 @@ Policy templates:
   - fail if regressions exceed allowed count
   - fail when `hallucination_new > 0`
   - fail when `safety_boundary > 1`
+
+Pack intent:
+
+- `risk_averse`: tighter regression budgets and stricter critical-category max limits
+- `velocity`: wider budgets while retaining safety/factual guardrails
 
 Artifacts:
 

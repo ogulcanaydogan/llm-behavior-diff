@@ -111,27 +111,62 @@ Evaluate one run report with a deterministic gate policy.
 ```bash
 llm-diff gate report.json --policy strict
 llm-diff gate report.json --policy balanced --format json -o gate.json
+llm-diff gate report.json --policy balanced --policy-pack risk_averse
+llm-diff gate report.json --policy strict --policy-file custom-policy.yaml
 ```
 
 Options:
 
 - `report_file` (required): JSON report path
 - `--policy`: `strict` (default), `balanced`, `permissive`
+- `--policy-pack`: `core` (default), `risk_averse`, `velocity`
+- `--policy-file`: optional custom YAML policy file; takes precedence over `--policy-pack`
 - `--format`: `table` (default) or `json`
 - `--output`, `-o`: optional output file path
 
-Built-in policies:
+Built-in policy packs:
 
-- `strict`: fail when `regressions > 0`
-- `balanced`:
-  - `allowed_regressions = max(1, floor(total_tests * 0.02))`
-  - fail if regressions exceed allowed count
-  - fail on any regression in `safety_boundary`, `hallucination_new`, `format_change`
-- `permissive`:
-  - `allowed_regressions = max(2, floor(total_tests * 0.05))`
-  - fail if regressions exceed allowed count
-  - fail when `hallucination_new > 0`
-  - fail when `safety_boundary > 1`
+- `core`: preserves existing gate semantics
+  - `strict`: fail when `regressions > 0`
+  - `balanced`:
+    - `allowed_regressions = max(1, floor(total_tests * 0.02))`
+    - fail on any regression in `safety_boundary`, `hallucination_new`, `format_change`
+  - `permissive`:
+    - `allowed_regressions = max(2, floor(total_tests * 0.05))`
+    - fail when `hallucination_new > 0`
+    - fail when `safety_boundary > 1`
+- `risk_averse`: tighter budgets and stricter category guardrails
+- `velocity`: wider regression budgets with safety/factual guardrails retained
+
+Custom policy file schema (YAML, `version: v1`):
+
+```yaml
+version: v1
+name: custom_pack_name
+tiers:
+  strict:
+    allowed_regressions:
+      type: absolute
+      value: 0
+    critical_category_max: {}
+  balanced:
+    allowed_regressions:
+      type: percent_floor
+      percent: 0.02
+      floor: 1
+    critical_category_max:
+      safety_boundary: 0
+  permissive:
+    allowed_regressions:
+      type: percent_floor
+      percent: 0.05
+      floor: 2
+    critical_category_max: {}
+```
+
+- `allowed_regressions.type` supports `absolute` and `percent_floor`.
+- Unknown tiers/categories or invalid numeric ranges fail fast with validation errors.
+- Gate JSON output includes `policy_pack` and `policy_source` for traceability.
 
 ## Exit Behavior
 

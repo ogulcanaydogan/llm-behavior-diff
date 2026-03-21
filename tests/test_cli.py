@@ -354,8 +354,151 @@ def test_gate_json_output_writes_file(tmp_path: Path) -> None:
     assert result.exit_code == 0
     payload = json.loads(output_path.read_text(encoding="utf-8"))
     assert payload["policy"] == "balanced"
+    assert payload["policy_pack"] == "core"
+    assert payload["policy_source"] == "builtin:core"
     assert payload["passed"] is True
     assert payload["thresholds"]["allowed_regressions"] == 2
+
+
+def test_gate_with_policy_pack_affects_decision(tmp_path: Path) -> None:
+    report_path = tmp_path / "gate_pack.json"
+    output_path = tmp_path / "gate_pack_result.json"
+    report = BehaviorReport(
+        model_a="gpt-4o",
+        model_b="gpt-4.5",
+        suite_name="suite",
+        total_tests=100,
+        total_diffs=2,
+        regressions=2,
+        improvements=0,
+        duration_seconds=1.0,
+    )
+    report_path.write_text(json.dumps(report.model_dump(mode="json"), indent=2), encoding="utf-8")
+
+    result = CliRunner().invoke(
+        main,
+        [
+            "gate",
+            str(report_path),
+            "--policy",
+            "balanced",
+            "--policy-pack",
+            "risk_averse",
+            "--format",
+            "json",
+            "--output",
+            str(output_path),
+        ],
+    )
+    assert result.exit_code == 2
+    payload = json.loads(output_path.read_text(encoding="utf-8"))
+    assert payload["policy_pack"] == "risk_averse"
+    assert payload["thresholds"]["allowed_regressions"] == 1
+
+
+def test_gate_with_policy_file_takes_precedence(tmp_path: Path) -> None:
+    report_path = tmp_path / "gate_custom_file.json"
+    policy_path = tmp_path / "custom_policy.yaml"
+    output_path = tmp_path / "gate_custom_result.json"
+    report = BehaviorReport(
+        model_a="gpt-4o",
+        model_b="gpt-4.5",
+        suite_name="suite",
+        total_tests=10,
+        total_diffs=3,
+        regressions=3,
+        improvements=0,
+        duration_seconds=1.0,
+    )
+    policy_path.write_text(
+        """
+version: v1
+name: custom_relaxed
+tiers:
+  strict:
+    allowed_regressions:
+      type: absolute
+      value: 5
+    critical_category_max: {}
+  balanced:
+    allowed_regressions:
+      type: percent_floor
+      percent: 0.10
+      floor: 1
+    critical_category_max: {}
+  permissive:
+    allowed_regressions:
+      type: percent_floor
+      percent: 0.20
+      floor: 2
+    critical_category_max: {}
+""".strip() + "\n",
+        encoding="utf-8",
+    )
+    report_path.write_text(json.dumps(report.model_dump(mode="json"), indent=2), encoding="utf-8")
+
+    result = CliRunner().invoke(
+        main,
+        [
+            "gate",
+            str(report_path),
+            "--policy",
+            "strict",
+            "--policy-pack",
+            "risk_averse",
+            "--policy-file",
+            str(policy_path),
+            "--format",
+            "json",
+            "--output",
+            str(output_path),
+        ],
+    )
+    assert result.exit_code == 0
+    payload = json.loads(output_path.read_text(encoding="utf-8"))
+    assert payload["passed"] is True
+    assert payload["policy_pack"] == "custom_relaxed"
+    assert str(payload["policy_source"]).startswith("file:")
+
+
+def test_gate_invalid_policy_file_returns_usage_error_code_one(tmp_path: Path) -> None:
+    report_path = tmp_path / "gate_invalid_policy.json"
+    policy_path = tmp_path / "invalid_policy.yaml"
+    report = BehaviorReport(
+        model_a="gpt-4o",
+        model_b="gpt-4.5",
+        suite_name="suite",
+        total_tests=10,
+        total_diffs=0,
+        regressions=0,
+        improvements=0,
+        duration_seconds=1.0,
+    )
+    policy_path.write_text(
+        """
+version: v1
+tiers:
+  strict:
+    allowed_regressions:
+      type: absolute
+      value: 0
+    critical_category_max: {}
+""".strip() + "\n",
+        encoding="utf-8",
+    )
+    report_path.write_text(json.dumps(report.model_dump(mode="json"), indent=2), encoding="utf-8")
+
+    result = CliRunner().invoke(
+        main,
+        [
+            "gate",
+            str(report_path),
+            "--policy-file",
+            str(policy_path),
+        ],
+    )
+    assert result.exit_code == 1
+    assert "Error evaluating policy" in result.output
 
 
 def test_gate_invalid_report_fails_with_usage_error_code_one(tmp_path: Path) -> None:
