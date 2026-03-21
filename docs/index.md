@@ -50,3 +50,4 @@ llm-diff report report.json --format table
 - Bootstrap + Wilson statistical intervals are implemented in run metadata.
 - Compare output includes bootstrap delta CI + permutation p-value.
 - Launch kit content tracks current implementation state (not historical snapshots).
+- No open committed roadmap items currently; future items are tracked as new phases.

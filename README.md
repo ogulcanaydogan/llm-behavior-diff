@@ -261,7 +261,7 @@ Full operational steps and secret matrix are in [docs/release-runbook.md](docs/r
 - [Release Runbook](docs/release-runbook.md)
 - [Launch Kit](docs/launch-kit/devto.md)
 
-## Limits and Planned Work
+## Current Scope and Future Exploration
 
 Implemented now:
 
@@ -272,6 +272,15 @@ Implemented now:
 - bootstrap delta CI + permutation p-value (compare rows)
 - risk-tier gate policies (CLI + model-upgrade workflow)
 - suite templates and CI distribution workflows
+
+Committed roadmap status:
+
+- No open committed roadmap items at this time.
+
+Future exploration candidates (not committed yet):
+
+- optional external factual validation connectors
+- broader enterprise reporting/export integrations
 
 ## Contributing
 

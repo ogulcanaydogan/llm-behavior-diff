@@ -16,11 +16,10 @@ What I optimized for:
 2. explainable decisions with comparator breakdowns
 3. CI-ready JSON artifacts for gating and audit
 
-Known gaps still planned:
+Future exploration (not committed in the current roadmap):
 
-- broader adapter ecosystem beyond current OpenAI/Anthropic/LiteLLM/local routing
-- advanced statistical methods beyond bootstrap/Wilson/permutation
-- richer visual reporting surface
+- optional external factual validation connectors
+- broader enterprise reporting/export integrations
 
 If you run model-upgrade gates in production, I’d value specifics on:
 

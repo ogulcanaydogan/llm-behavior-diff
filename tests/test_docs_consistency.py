@@ -12,6 +12,9 @@ STALE_PHRASES = {
     "no statistical significance layer yet",
     "llm-as-judge is planned as an optional layer",
     "no llm-as-judge in this version",
+    "organization-specific policy packs and custom policy plugin hooks",
+    "known gaps still planned:",
+    "remaining planned items",
 }
 
 
