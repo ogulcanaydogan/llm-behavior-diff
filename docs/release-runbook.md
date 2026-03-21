@@ -10,8 +10,9 @@ This runbook covers manual distribution and model-upgrade gating workflows.
 - Required secrets configured (see matrix below)
 - Workflow runtime policy: JavaScript-based actions are forced to Node24 via
   `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24=true` at workflow scope.
-- Workflow security policy: third-party actions are SHA-pinned and maintained via
-  weekly Dependabot updates for `github-actions`.
+- Workflow security policy: third-party actions are SHA-pinned. Dependabot
+  auto-updates `github-actions` minor/patch versions weekly; major updates are
+  handled in planned maintenance windows.
 
 ## Secrets and Permissions Matrix
 
@@ -155,8 +156,12 @@ llm-diff --help
 ## 5) Workflow Action Update Operations
 
 - Dependabot opens weekly PRs for `.github/workflows/*` action updates.
+- Dependabot policy ignores semver-major updates for `github-actions`.
 - Review checklist for these PRs:
   - all `uses:` refs remain full 40-char commit SHAs
   - top-level workflow `permissions` remain least-privilege and unchanged unless intentional
   - `CI` and `Docker Image` checks stay green
-- Security drift guard tests in `tests/test_workflow_security_guard.py` enforce both rules.
+- Major action version bumps are reviewed and merged only in separate planned
+  hardening windows.
+- Security drift guard tests in `tests/test_workflow_security_guard.py` and
+  `tests/test_dependabot_policy_guard.py` enforce both rules.
