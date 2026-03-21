@@ -20,6 +20,12 @@ EXPECTED_PERMISSIONS: dict[str, dict[str, str]] = {
 }
 
 SHA_PIN_PATTERN = re.compile(r"^[^@\s]+@[0-9a-f]{40}$")
+DEPRECATED_NODE20_ERA_SHAS = {
+    "34e114876b0b11c390a56381ad16ebd13914f8d5",  # actions/checkout v4
+    "a26af69be951a213d495a4c3e4e4022e16d87065",  # actions/setup-python v5
+    "c94ce9fb468520275223c153574b00df6fe4bcc9",  # docker/login-action v3
+    "ea165f8d65b6e75b540449e92b4886f43607fa02",  # actions/upload-artifact v4
+}
 
 
 def _iter_uses(node: Any) -> Iterator[str]:
@@ -67,6 +73,13 @@ def test_workflow_actions_are_sha_pinned_and_permissions_are_baselined() -> None
             if not SHA_PIN_PATTERN.match(uses):
                 violations.append(
                     f"{workflow_file.name}: action ref must be SHA pinned, found '{uses}'"
+                )
+                continue
+
+            action_ref = uses.rsplit("@", 1)[1]
+            if action_ref in DEPRECATED_NODE20_ERA_SHAS:
+                violations.append(
+                    f"{workflow_file.name}: deprecated pre-Node24 action SHA used '{uses}'"
                 )
 
     assert not violations, "Workflow security guard failed:\n" + "\n".join(violations)
