@@ -100,8 +100,8 @@ The `git diff` for LLM behavior. When you upgrade a model version, know exactly 
 - [x] Custom YAML policy hook (`version: v1`) with strict validation
 - [x] CLI + model-upgrade workflow parity for pack/file policy resolution
 
-## Remaining Planned Items
-No open roadmap items at this time. Future work will be tracked as new phases.
+## Current Status
+No open committed roadmap items at this time. Future work will be tracked as new phases when prioritized.
 
 ## Success Metrics
 - Can compare any two LLM versions in under 30 minutes for 100 test cases

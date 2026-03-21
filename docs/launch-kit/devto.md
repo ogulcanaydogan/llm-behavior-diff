@@ -98,11 +98,11 @@ Implemented:
 - significance layer is metadata-only (does not enforce pass/fail by itself)
 - advanced methods beyond bootstrap/Wilson/permutation are not included in this version
 
-## Planned Next
+## Future Exploration (Not Committed Roadmap)
 
-- organization-specific policy packs and custom policy plugin hooks
 - optional external factual validation connectors
 - broader enterprise reporting/export integrations
+- additional statistical methods beyond bootstrap/Wilson/permutation
 
 ## If You Want to Try It
 
