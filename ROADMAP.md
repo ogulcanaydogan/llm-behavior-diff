@@ -85,7 +85,7 @@ The `git diff` for LLM behavior. When you upgrade a model version, know exactly 
 - [x] GitHub Action for model upgrade regression testing
 - [x] Risk-tier release-policy templates (strict/balanced/permissive)
 - [x] GitHub Actions CI
-- [x] Node24 Actions runtime hardening (workflow-level force flag)
+- [x] Node24 Actions deprecation closure (workflow force flag + Node24-ready major action window)
 - [x] CI security hardening (SHA-pinned actions + permission baseline + Dependabot actions updates, with auto major bumps disabled)
 - [x] Docker image
 - [x] PyPI packaging (`pip install llm-behavior-diff`)

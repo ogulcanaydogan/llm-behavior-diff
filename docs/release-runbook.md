@@ -8,8 +8,9 @@ This runbook covers manual distribution and model-upgrade gating workflows.
 - GitHub Actions enabled for the repository
 - Package version updated in `pyproject.toml`
 - Required secrets configured (see matrix below)
-- Workflow runtime policy: JavaScript-based actions are forced to Node24 via
-  `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24=true` at workflow scope.
+- Workflow runtime policy: Node24 deprecation closure is in place. Workflows
+  keep `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24=true` and use Node24-ready major
+  action versions pinned by SHA.
 - Workflow security policy: third-party actions are SHA-pinned. Dependabot
   auto-updates `github-actions` minor/patch versions weekly; major updates are
   handled in planned maintenance windows.
