@@ -236,7 +236,7 @@ Evaluate one run report with deterministic policy templates:
 - `docker-image.yml`: PR/master build+smoke, optional manual GHCR push
 - `model-upgrade-regression.yml`: manual/reusable regression gate (`gate_policy`: `strict|balanced|permissive`, default `strict`)
 - Runtime hardening: all workflows force JavaScript actions on Node24 via `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24=true`.
-- Workflow security hardening: all third-party actions are pinned to full commit SHAs and updated via weekly Dependabot (`github-actions`) PRs.
+- Workflow security hardening: all third-party actions are pinned to full commit SHAs; Dependabot auto-updates `github-actions` minor/patch versions weekly, while major bumps are handled in planned maintenance windows.
 
 Local parity commands:
 
