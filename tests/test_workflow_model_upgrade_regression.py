@@ -21,7 +21,7 @@ def _assert_input_present(inputs: dict[str, Any], key: str) -> None:
     assert key in inputs, f"Missing '{key}' input in workflow."
 
 
-def test_model_upgrade_workflow_has_factual_connector_inputs_and_wiring() -> None:
+def test_model_upgrade_workflow_has_factual_connector_inputs_and_export_wiring() -> None:
     workflow = _load_workflow()
     on_section = workflow.get("on", workflow.get(True))
     assert isinstance(on_section, dict), "Workflow must define an 'on' section."
@@ -50,3 +50,27 @@ def test_model_upgrade_workflow_has_factual_connector_inputs_and_wiring() -> Non
     assert '--factual-connector "$FACTUAL_CONNECTOR"' in run_script
     assert '--factual-connector-timeout "$FACTUAL_CONNECTOR_TIMEOUT"' in run_script
     assert '--factual-connector-max-results "$FACTUAL_CONNECTOR_MAX_RESULTS"' in run_script
+    assert (
+        'llm-diff report "$output_file" --format csv --output "artifacts/exports/${suite_name}.csv"'
+        in run_script
+    )
+    assert (
+        'llm-diff report "$output_file" --format ndjson --output "artifacts/exports/${suite_name}.ndjson"'
+        in run_script
+    )
+    assert (
+        'llm-diff report "$output_file" --format junit --output "artifacts/exports/${suite_name}.junit.xml"'
+        in run_script
+    )
+
+    export_step = next(
+        step
+        for step in steps
+        if isinstance(step, dict) and step.get("name") == "Upload suite exports"
+    )
+    assert export_step.get("uses") == (
+        "actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f"
+    )
+    export_with = export_step.get("with")
+    assert isinstance(export_with, dict)
+    assert export_with.get("path") == "artifacts/exports/"

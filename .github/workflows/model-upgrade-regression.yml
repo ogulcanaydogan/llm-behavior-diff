@@ -198,6 +198,7 @@ jobs:
       - name: Run behavioral diff suites
         run: |
           mkdir -p artifacts/reports
+          mkdir -p artifacts/exports
 
           while IFS= read -r suite; do
             [ -z "$suite" ] && continue
@@ -218,6 +219,10 @@ jobs:
               --factual-connector-timeout "$FACTUAL_CONNECTOR_TIMEOUT" \
               --factual-connector-max-results "$FACTUAL_CONNECTOR_MAX_RESULTS" \
               --output "$output_file"
+
+            llm-diff report "$output_file" --format csv --output "artifacts/exports/${suite_name}.csv"
+            llm-diff report "$output_file" --format ndjson --output "artifacts/exports/${suite_name}.ndjson"
+            llm-diff report "$output_file" --format junit --output "artifacts/exports/${suite_name}.junit.xml"
           done < suites_to_run.txt
 
       - name: Upload suite reports
@@ -226,6 +231,14 @@ jobs:
         with:
           name: model-upgrade-reports-${{ github.run_id }}
           path: artifacts/reports/
+          if-no-files-found: error
+
+      - name: Upload suite exports
+        if: always()
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f
+        with:
+          name: model-upgrade-exports-${{ github.run_id }}
+          path: artifacts/exports/
           if-no-files-found: error
 
       - name: Aggregate suite results and apply gate policy
