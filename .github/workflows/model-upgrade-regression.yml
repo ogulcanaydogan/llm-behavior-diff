@@ -44,6 +44,24 @@ on:
         description: "Optional repo-relative custom policy YAML file (takes precedence)"
         required: false
         type: string
+      factual_connector:
+        description: "Optional external factual connector"
+        required: false
+        default: none
+        type: choice
+        options:
+          - none
+          - wikipedia
+      factual_connector_timeout:
+        description: "Timeout in seconds for external factual connector requests"
+        required: false
+        default: 8
+        type: number
+      factual_connector_max_results:
+        description: "Max external factual evidence results per test"
+        required: false
+        default: 3
+        type: number
 
   workflow_call:
     inputs:
@@ -71,6 +89,18 @@ on:
       gate_policy_file:
         required: false
         type: string
+      factual_connector:
+        required: false
+        type: string
+        default: none
+      factual_connector_timeout:
+        required: false
+        type: number
+        default: 8
+      factual_connector_max_results:
+        required: false
+        type: number
+        default: 3
     secrets:
       OPENAI_API_KEY:
         required: false
@@ -101,6 +131,9 @@ jobs:
       GATE_POLICY: ${{ inputs.gate_policy }}
       GATE_POLICY_PACK: ${{ inputs.gate_policy_pack }}
       GATE_POLICY_FILE: ${{ inputs.gate_policy_file }}
+      FACTUAL_CONNECTOR: ${{ inputs.factual_connector }}
+      FACTUAL_CONNECTOR_TIMEOUT: ${{ inputs.factual_connector_timeout }}
+      FACTUAL_CONNECTOR_MAX_RESULTS: ${{ inputs.factual_connector_max_results }}
 
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
@@ -181,6 +214,9 @@ jobs:
               --model-b "$MODEL_B" \
               --suite "$suite" \
               --max-workers "$MAX_WORKERS" \
+              --factual-connector "$FACTUAL_CONNECTOR" \
+              --factual-connector-timeout "$FACTUAL_CONNECTOR_TIMEOUT" \
+              --factual-connector-max-results "$FACTUAL_CONNECTOR_MAX_RESULTS" \
               --output "$output_file"
           done < suites_to_run.txt
 

@@ -17,14 +17,15 @@
 5. Responses are sent to comparator pipeline:
    - semantic
    - factual
+   - optional factual_external (`--factual-connector`, factual-applicable + semantic-diff tests only)
    - format
    - behavioral
    - optional judge (`--judge-model`, semantic-diff tests only)
 6. Aggregator applies precedence:
    - semantic-same > factual > format > behavioral > unknown
 7. BehaviorReport is assembled with diff stats, token usage, estimated cost, comparator summary,
-   and run-level significance metadata (bootstrap + Wilson intervals).
-   - judge output is metadata-only and does not override deterministic final classification
+   external factual summary, and run-level significance metadata (bootstrap + Wilson intervals).
+   - judge/factual_external outputs are metadata-only and do not override deterministic final classification
 8. Optional policy gate evaluates report artifacts with deterministic tiers
    (`strict`, `balanced`, `permissive`) plus pack resolution:
    - built-in packs: `core`, `risk_averse`, `velocity`
@@ -49,6 +50,7 @@
   - `failed_tests`
   - `errors`
 - Judge errors are always non-fatal and are recorded as `judge_error`/`judge_uncertain` metadata decisions.
+- External factual connector errors are non-fatal and recorded as `external_error` metadata decisions.
 
 ## Cost Tracking
 

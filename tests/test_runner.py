@@ -7,6 +7,8 @@ from typing import Any
 
 import pytest
 
+from llm_behavior_diff.comparators.factual_external import ExternalFactualComparator
+from llm_behavior_diff.connectors.base import SearchResult
 from llm_behavior_diff.runner import (
     AsyncRateLimiter,
     BehaviorDiffRunner,
@@ -15,6 +17,7 @@ from llm_behavior_diff.runner import (
     compute_backoff_seconds,
     compute_estimated_cost_usd,
     create_adapter,
+    create_factual_connector,
     infer_behavior_category,
     is_retryable_error,
     load_pricing_overrides,
@@ -96,6 +99,24 @@ class PromptAgnosticAdapter:
         return self.response_text, dict(self.metadata)
 
 
+class StubEvidenceConnector:
+    """Connector stub for external factual comparator tests."""
+
+    name = "stub-evidence"
+
+    def __init__(
+        self, *, results: list[SearchResult] | None = None, error: Exception | None = None
+    ) -> None:
+        self.results = results or []
+        self.error = error
+
+    async def search(self, query: str, max_results: int, timeout: float) -> list[SearchResult]:
+        del query, max_results, timeout
+        if self.error is not None:
+            raise self.error
+        return self.results
+
+
 def _write(path: Path, content: str) -> Path:
     path.write_text(content, encoding="utf-8")
     return path
@@ -150,6 +171,13 @@ def test_provider_resolution() -> None:
     assert resolve_provider("local:llama3.1") == "local"
     with pytest.raises(ValueError, match="Unsupported model"):
         resolve_provider("gemini-1.5-pro")
+
+
+def test_create_factual_connector() -> None:
+    assert create_factual_connector("none") is None
+    assert create_factual_connector("wikipedia") is not None
+    with pytest.raises(ValueError, match="Unsupported factual connector"):
+        create_factual_connector("unknown")
 
 
 def test_parse_model_reference() -> None:
@@ -357,6 +385,105 @@ async def test_runner_heuristics_and_aggregation() -> None:
     assert by_id["t_regress"].behavior_category == BehaviorCategory.KNOWLEDGE_CHANGE
     assert by_id["t_same"].is_semantically_same is True
     assert by_id["t_same"].behavior_category == BehaviorCategory.SEMANTIC
+
+
+@pytest.mark.asyncio
+async def test_runner_external_factual_payload_present_and_non_overriding() -> None:
+    suite = SuiteDefinition(
+        name="external_factual_suite",
+        description="External factual metadata should not override deterministic final decision",
+        test_cases=[
+            SuiteCase(
+                id="t_factual",
+                prompt="prompt_factual",
+                category="factual_knowledge",
+                expected_behavior="alpha beta gamma delta",
+            )
+        ],
+    )
+    adapter_a = StubAdapter(responses={"prompt_factual": "alpha beta gamma delta"})
+    adapter_b = StubAdapter(
+        responses={
+            "prompt_factual": (
+                "alpha zeta theta iota kappa lambda omicron upsilon " "discovery evidence reference"
+            ),
+        }
+    )
+    external_comparator = ExternalFactualComparator(
+        connector=StubEvidenceConnector(
+            results=[
+                SearchResult(
+                    title="E1",
+                    url="https://example.com/e1",
+                    snippet=(
+                        "zeta theta iota kappa lambda omicron upsilon "
+                        "discovery evidence reference"
+                    ),
+                )
+            ]
+        ),
+        min_evidence_terms=8,
+        delta_threshold=0.15,
+    )
+
+    runner = BehaviorDiffRunner(
+        model_a="gpt-4o",
+        model_b="claude-3-sonnet",
+        adapter_a=adapter_a,
+        adapter_b=adapter_b,
+        semantic_comparator=StubComparator(),
+        factual_connector="wikipedia",
+        external_factual_comparator=external_comparator,
+    )
+
+    report = await runner.run_suite(suite)
+    diff = report.diff_results[0]
+    assert diff.behavior_category == BehaviorCategory.HALLUCINATION_NEW
+    assert diff.is_regression is True
+    assert diff.metadata["comparators"]["factual_external"]["decision"] == "external_recovery"
+    assert "factual_external" in diff.metadata
+    summary = report.metadata["factual_external_summary"]
+    assert summary["enabled"] is True
+    assert summary["decision_counts"]["external_recovery"] == 1
+    assert summary["applied_tests"] == 1
+
+
+@pytest.mark.asyncio
+async def test_runner_external_factual_errors_are_non_fatal() -> None:
+    suite = SuiteDefinition(
+        name="external_factual_error_suite",
+        description="External factual connector errors should not fail run",
+        test_cases=[
+            SuiteCase(
+                id="t_factual",
+                prompt="prompt_factual",
+                category="factual_knowledge",
+                expected_behavior="alpha beta",
+            )
+        ],
+    )
+    adapter_a = StubAdapter(responses={"prompt_factual": "alpha beta"})
+    adapter_b = StubAdapter(responses={"prompt_factual": "alpha"})
+    external_comparator = ExternalFactualComparator(
+        connector=StubEvidenceConnector(error=RuntimeError("connector timeout"))
+    )
+
+    runner = BehaviorDiffRunner(
+        model_a="gpt-4o",
+        model_b="claude-3-sonnet",
+        adapter_a=adapter_a,
+        adapter_b=adapter_b,
+        semantic_comparator=StubComparator(),
+        factual_connector="wikipedia",
+        external_factual_comparator=external_comparator,
+    )
+
+    report = await runner.run_suite(suite)
+    diff = report.diff_results[0]
+    assert report.metadata["failed_tests"] == 0
+    assert diff.metadata["comparators"]["factual_external"]["decision"] == "external_error"
+    assert "connector timeout" in str(diff.metadata["factual_external"].get("error", ""))
+    assert report.metadata["factual_external_summary"]["decision_counts"]["external_error"] == 1
 
 
 @pytest.mark.asyncio

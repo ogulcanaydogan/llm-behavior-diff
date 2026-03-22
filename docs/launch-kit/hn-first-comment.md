@@ -18,7 +18,6 @@ What I optimized for:
 
 Future exploration (not committed in the current roadmap):
 
-- optional external factual validation connectors
 - broader enterprise reporting/export integrations
 
 If you run model-upgrade gates in production, I’d value specifics on:

@@ -8,6 +8,17 @@ from .base import ComparatorResult, score_confidence_from_delta, score_expected_
 _FACTUAL_HINTS = ("factual", "current", "history", "knowledge")
 
 
+def is_factual_applicable(test_case: TestCase) -> bool:
+    """Check whether this test should be treated as factual-sensitive."""
+    category = test_case.category.lower()
+    tags = " ".join(test_case.tags).lower()
+    metadata_text = " ".join(
+        [str(key).lower() + str(value).lower() for key, value in test_case.metadata.items()]
+    )
+    haystack = " ".join([category, tags, metadata_text])
+    return any(hint in haystack for hint in _FACTUAL_HINTS)
+
+
 class FactualComparator:
     """Detect factual shifts using expected-behavior coverage heuristics."""
 
@@ -56,10 +67,4 @@ class FactualComparator:
 
     def _applies(self, test_case: TestCase) -> bool:
         """Check whether this test should be treated as factual-sensitive."""
-        category = test_case.category.lower()
-        tags = " ".join(test_case.tags).lower()
-        metadata_text = " ".join(
-            [str(key).lower() + str(value).lower() for key, value in test_case.metadata.items()]
-        )
-        haystack = " ".join([category, tags, metadata_text])
-        return any(hint in haystack for hint in _FACTUAL_HINTS)
+        return is_factual_applicable(test_case)
