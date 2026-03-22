@@ -70,6 +70,7 @@ on:
         options:
           - none
           - http
+          - s3
       export_connector_endpoint:
         description: "Optional export connector endpoint URL (required for export_connector=http)"
         required: false
@@ -79,6 +80,19 @@ on:
         required: false
         default: 10
         type: number
+      export_s3_bucket:
+        description: "Optional S3 bucket (required for export_connector=s3)"
+        required: false
+        type: string
+      export_s3_prefix:
+        description: "Optional S3 key prefix for export objects"
+        required: false
+        default: ""
+        type: string
+      export_s3_region:
+        description: "Optional S3 region override"
+        required: false
+        type: string
 
   workflow_call:
     inputs:
@@ -129,12 +143,28 @@ on:
         required: false
         type: number
         default: 10
+      export_s3_bucket:
+        required: false
+        type: string
+      export_s3_prefix:
+        required: false
+        type: string
+        default: ""
+      export_s3_region:
+        required: false
+        type: string
     secrets:
       OPENAI_API_KEY:
         required: false
       ANTHROPIC_API_KEY:
         required: false
       EXPORT_CONNECTOR_API_KEY:
+        required: false
+      AWS_ACCESS_KEY_ID:
+        required: false
+      AWS_SECRET_ACCESS_KEY:
+        required: false
+      AWS_SESSION_TOKEN:
         required: false
 
 permissions:
@@ -168,6 +198,12 @@ jobs:
       EXPORT_CONNECTOR_ENDPOINT: ${{ inputs.export_connector_endpoint }}
       EXPORT_CONNECTOR_TIMEOUT: ${{ inputs.export_connector_timeout }}
       EXPORT_CONNECTOR_API_KEY: ${{ secrets.EXPORT_CONNECTOR_API_KEY }}
+      EXPORT_S3_BUCKET: ${{ inputs.export_s3_bucket }}
+      EXPORT_S3_PREFIX: ${{ inputs.export_s3_prefix }}
+      EXPORT_S3_REGION: ${{ inputs.export_s3_region }}
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      AWS_SESSION_TOKEN: ${{ secrets.AWS_SESSION_TOKEN }}
 
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
@@ -235,17 +271,30 @@ jobs:
           mkdir -p artifacts/exports
           export_args=()
           if [ "$EXPORT_CONNECTOR" != "none" ]; then
-            if [ -z "$EXPORT_CONNECTOR_ENDPOINT" ]; then
-              echo "export_connector_endpoint is required when export_connector is not none."
-              exit 1
-            fi
             export_args=(
               --export-connector "$EXPORT_CONNECTOR"
-              --export-endpoint "$EXPORT_CONNECTOR_ENDPOINT"
               --export-timeout "$EXPORT_CONNECTOR_TIMEOUT"
             )
-            if [ -n "$EXPORT_CONNECTOR_API_KEY" ]; then
-              export_args+=(--export-api-key "$EXPORT_CONNECTOR_API_KEY")
+
+            if [ "$EXPORT_CONNECTOR" = "http" ]; then
+              if [ -z "$EXPORT_CONNECTOR_ENDPOINT" ]; then
+                echo "export_connector_endpoint is required when export_connector=http."
+                exit 1
+              fi
+              export_args+=(--export-endpoint "$EXPORT_CONNECTOR_ENDPOINT")
+              if [ -n "$EXPORT_CONNECTOR_API_KEY" ]; then
+                export_args+=(--export-api-key "$EXPORT_CONNECTOR_API_KEY")
+              fi
+            elif [ "$EXPORT_CONNECTOR" = "s3" ]; then
+              if [ -z "$EXPORT_S3_BUCKET" ]; then
+                echo "export_s3_bucket is required when export_connector=s3."
+                exit 1
+              fi
+              export_args+=(--export-s3-bucket "$EXPORT_S3_BUCKET")
+              export_args+=(--export-s3-prefix "$EXPORT_S3_PREFIX")
+              if [ -n "$EXPORT_S3_REGION" ]; then
+                export_args+=(--export-s3-region "$EXPORT_S3_REGION")
+              fi
             fi
           fi
 

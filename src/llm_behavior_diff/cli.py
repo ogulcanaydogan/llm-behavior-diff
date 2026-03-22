@@ -216,7 +216,7 @@ def run(
 )
 @click.option(
     "--export-connector",
-    type=click.Choice(["none", "http"]),
+    type=click.Choice(["none", "http", "s3"]),
     default="none",
     show_default=True,
     help="Optional direct export connector for rendered report output",
@@ -238,6 +238,23 @@ def run(
     type=str,
     help="Optional export API key (fallback: LLM_DIFF_EXPORT_API_KEY env var)",
 )
+@click.option(
+    "--export-s3-bucket",
+    type=str,
+    help="S3 bucket name (required when --export-connector s3)",
+)
+@click.option(
+    "--export-s3-prefix",
+    type=str,
+    default="",
+    show_default=True,
+    help="Optional S3 key prefix",
+)
+@click.option(
+    "--export-s3-region",
+    type=str,
+    help="Optional S3 region override (uses AWS default chain when omitted)",
+)
 def report(
     report_file: str,
     format: str,
@@ -246,6 +263,9 @@ def report(
     export_endpoint: Optional[str],
     export_timeout: float,
     export_api_key: Optional[str],
+    export_s3_bucket: Optional[str],
+    export_s3_prefix: str,
+    export_s3_region: Optional[str],
 ) -> None:
     """
     Generate behavioral diff report from results.
@@ -296,6 +316,9 @@ def report(
                 endpoint=export_endpoint,
                 timeout_seconds=export_timeout,
                 api_key=export_api_key,
+                s3_bucket=export_s3_bucket,
+                s3_prefix=export_s3_prefix,
+                s3_region=export_s3_region,
             )
             console.print("[green]External export delivered[/green]")
         except Exception as exc:
@@ -822,6 +845,43 @@ def _content_type_for_report_format(report_format: str) -> str:
     return mapping.get(report_format, "text/plain")
 
 
+def _extension_for_report_format(report_format: str) -> str:
+    mapping = {
+        "json": "json",
+        "html": "html",
+        "markdown": "md",
+        "csv": "csv",
+        "ndjson": "ndjson",
+        "junit": "xml",
+    }
+    return mapping.get(report_format, "txt")
+
+
+def _build_s3_object_key(prefix: str, suite_name: str, report_id: str, report_format: str) -> str:
+    normalized_prefix = prefix.strip()
+    if normalized_prefix:
+        normalized_prefix = normalized_prefix.strip("/")
+        normalized_prefix = f"{normalized_prefix}/"
+    extension = _extension_for_report_format(report_format)
+    return f"{normalized_prefix}{suite_name}/{report_id}/report.{extension}"
+
+
+def _create_s3_client(region: Optional[str], timeout_seconds: float) -> Any:
+    import boto3
+    from botocore.config import Config
+
+    kwargs: dict[str, Any] = {
+        "config": Config(
+            connect_timeout=timeout_seconds,
+            read_timeout=timeout_seconds,
+            retries={"max_attempts": 1},
+        )
+    }
+    if region and region.strip():
+        kwargs["region_name"] = region.strip()
+    return boto3.client("s3", **kwargs)
+
+
 def _dispatch_report_export(
     report: BehaviorReport,
     report_format: str,
@@ -830,6 +890,9 @@ def _dispatch_report_export(
     endpoint: Optional[str],
     timeout_seconds: float,
     api_key: Optional[str],
+    s3_bucket: Optional[str],
+    s3_prefix: str,
+    s3_region: Optional[str],
 ) -> None:
     if timeout_seconds <= 0:
         raise ValueError("export_timeout must be > 0")
@@ -837,45 +900,65 @@ def _dispatch_report_export(
     normalized = connector.strip().lower()
     if normalized == "none":
         return
-    if normalized != "http":
-        raise ValueError(f"Unsupported export connector '{connector}'. Supported: none, http.")
-    if not endpoint or not endpoint.strip():
-        raise ValueError("export_endpoint is required when export_connector is 'http'.")
+    if normalized == "http":
+        if not endpoint or not endpoint.strip():
+            raise ValueError("export_endpoint is required when export_connector is 'http'.")
 
-    headers = {
-        "Content-Type": "application/json",
-        "User-Agent": "llm-behavior-diff/0.1 report-export",
-    }
-    resolved_api_key = _resolve_export_api_key(api_key)
-    if resolved_api_key:
-        headers["Authorization"] = f"Bearer {resolved_api_key}"
+        headers = {
+            "Content-Type": "application/json",
+            "User-Agent": "llm-behavior-diff/0.1 report-export",
+        }
+        resolved_api_key = _resolve_export_api_key(api_key)
+        if resolved_api_key:
+            headers["Authorization"] = f"Bearer {resolved_api_key}"
 
-    payload = {
-        "event": "llm_behavior_diff_report_export",
-        "report": {
-            "id": report.id,
-            "suite_name": report.suite_name,
-            "model_a": report.model_a,
-            "model_b": report.model_b,
-            "total_tests": report.total_tests,
-            "total_diffs": report.total_diffs,
-            "regressions": report.regressions,
-            "improvements": report.improvements,
-        },
-        "export": {
-            "format": report_format,
-            "content_type": _content_type_for_report_format(report_format),
-            "content": content,
-        },
-    }
+        payload = {
+            "event": "llm_behavior_diff_report_export",
+            "report": {
+                "id": report.id,
+                "suite_name": report.suite_name,
+                "model_a": report.model_a,
+                "model_b": report.model_b,
+                "total_tests": report.total_tests,
+                "total_diffs": report.total_diffs,
+                "regressions": report.regressions,
+                "improvements": report.improvements,
+            },
+            "export": {
+                "format": report_format,
+                "content_type": _content_type_for_report_format(report_format),
+                "content": content,
+            },
+        }
 
-    response = httpx.post(
-        endpoint.strip(),
-        json=payload,
-        headers=headers,
-        timeout=timeout_seconds,
-    )
-    response.raise_for_status()
+        response = httpx.post(
+            endpoint.strip(),
+            json=payload,
+            headers=headers,
+            timeout=timeout_seconds,
+        )
+        response.raise_for_status()
+        return
+
+    if normalized == "s3":
+        if not s3_bucket or not s3_bucket.strip():
+            raise ValueError("export_s3_bucket is required when export_connector is 's3'.")
+        object_key = _build_s3_object_key(
+            prefix=s3_prefix,
+            suite_name=report.suite_name,
+            report_id=str(report.id),
+            report_format=report_format,
+        )
+        client = _create_s3_client(region=s3_region, timeout_seconds=timeout_seconds)
+        client.put_object(
+            Bucket=s3_bucket.strip(),
+            Key=object_key,
+            Body=content.encode("utf-8"),
+            ContentType=_content_type_for_report_format(report_format),
+        )
+        return
+
+    raise ValueError(f"Unsupported export connector '{connector}'. Supported: none, http, s3.")
 
 
 def _format_markdown(report: BehaviorReport) -> str:
