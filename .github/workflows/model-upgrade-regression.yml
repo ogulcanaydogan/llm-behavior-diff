@@ -71,6 +71,7 @@ on:
           - none
           - http
           - s3
+          - bigquery
       export_connector_endpoint:
         description: "Optional export connector endpoint URL (required for export_connector=http)"
         required: false
@@ -91,6 +92,22 @@ on:
         type: string
       export_s3_region:
         description: "Optional S3 region override"
+        required: false
+        type: string
+      export_bq_project:
+        description: "Optional BigQuery project id (required for export_connector=bigquery)"
+        required: false
+        type: string
+      export_bq_dataset:
+        description: "Optional BigQuery dataset id (required for export_connector=bigquery)"
+        required: false
+        type: string
+      export_bq_table:
+        description: "Optional BigQuery table id (required for export_connector=bigquery)"
+        required: false
+        type: string
+      export_bq_location:
+        description: "Optional BigQuery location override"
         required: false
         type: string
 
@@ -153,6 +170,18 @@ on:
       export_s3_region:
         required: false
         type: string
+      export_bq_project:
+        required: false
+        type: string
+      export_bq_dataset:
+        required: false
+        type: string
+      export_bq_table:
+        required: false
+        type: string
+      export_bq_location:
+        required: false
+        type: string
     secrets:
       OPENAI_API_KEY:
         required: false
@@ -201,6 +230,10 @@ jobs:
       EXPORT_S3_BUCKET: ${{ inputs.export_s3_bucket }}
       EXPORT_S3_PREFIX: ${{ inputs.export_s3_prefix }}
       EXPORT_S3_REGION: ${{ inputs.export_s3_region }}
+      EXPORT_BQ_PROJECT: ${{ inputs.export_bq_project }}
+      EXPORT_BQ_DATASET: ${{ inputs.export_bq_dataset }}
+      EXPORT_BQ_TABLE: ${{ inputs.export_bq_table }}
+      EXPORT_BQ_LOCATION: ${{ inputs.export_bq_location }}
       AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
       AWS_SESSION_TOKEN: ${{ secrets.AWS_SESSION_TOKEN }}
@@ -269,9 +302,11 @@ jobs:
         run: |
           mkdir -p artifacts/reports
           mkdir -p artifacts/exports
-          export_args=()
+          export_args_csv=()
+          export_args_ndjson=()
+          export_args_junit=()
           if [ "$EXPORT_CONNECTOR" != "none" ]; then
-            export_args=(
+            connector_args=(
               --export-connector "$EXPORT_CONNECTOR"
               --export-timeout "$EXPORT_CONNECTOR_TIMEOUT"
             )
@@ -281,20 +316,49 @@ jobs:
                 echo "export_connector_endpoint is required when export_connector=http."
                 exit 1
               fi
-              export_args+=(--export-endpoint "$EXPORT_CONNECTOR_ENDPOINT")
+              connector_args+=(--export-endpoint "$EXPORT_CONNECTOR_ENDPOINT")
               if [ -n "$EXPORT_CONNECTOR_API_KEY" ]; then
-                export_args+=(--export-api-key "$EXPORT_CONNECTOR_API_KEY")
+                connector_args+=(--export-api-key "$EXPORT_CONNECTOR_API_KEY")
               fi
+              export_args_csv=("${connector_args[@]}")
+              export_args_ndjson=("${connector_args[@]}")
+              export_args_junit=("${connector_args[@]}")
             elif [ "$EXPORT_CONNECTOR" = "s3" ]; then
               if [ -z "$EXPORT_S3_BUCKET" ]; then
                 echo "export_s3_bucket is required when export_connector=s3."
                 exit 1
               fi
-              export_args+=(--export-s3-bucket "$EXPORT_S3_BUCKET")
-              export_args+=(--export-s3-prefix "$EXPORT_S3_PREFIX")
+              connector_args+=(--export-s3-bucket "$EXPORT_S3_BUCKET")
+              connector_args+=(--export-s3-prefix "$EXPORT_S3_PREFIX")
               if [ -n "$EXPORT_S3_REGION" ]; then
-                export_args+=(--export-s3-region "$EXPORT_S3_REGION")
+                connector_args+=(--export-s3-region "$EXPORT_S3_REGION")
               fi
+              export_args_csv=("${connector_args[@]}")
+              export_args_ndjson=("${connector_args[@]}")
+              export_args_junit=("${connector_args[@]}")
+            elif [ "$EXPORT_CONNECTOR" = "bigquery" ]; then
+              if [ -z "$EXPORT_BQ_PROJECT" ]; then
+                echo "export_bq_project is required when export_connector=bigquery."
+                exit 1
+              fi
+              if [ -z "$EXPORT_BQ_DATASET" ]; then
+                echo "export_bq_dataset is required when export_connector=bigquery."
+                exit 1
+              fi
+              if [ -z "$EXPORT_BQ_TABLE" ]; then
+                echo "export_bq_table is required when export_connector=bigquery."
+                exit 1
+              fi
+              connector_args+=(--export-bq-project "$EXPORT_BQ_PROJECT")
+              connector_args+=(--export-bq-dataset "$EXPORT_BQ_DATASET")
+              connector_args+=(--export-bq-table "$EXPORT_BQ_TABLE")
+              if [ -n "$EXPORT_BQ_LOCATION" ]; then
+                connector_args+=(--export-bq-location "$EXPORT_BQ_LOCATION")
+              fi
+              export_args_ndjson=("${connector_args[@]}")
+            else
+              echo "Unsupported export_connector: $EXPORT_CONNECTOR"
+              exit 1
             fi
           fi
 
@@ -318,9 +382,9 @@ jobs:
               --factual-connector-max-results "$FACTUAL_CONNECTOR_MAX_RESULTS" \
               --output "$output_file"
 
-            llm-diff report "$output_file" --format csv --output "artifacts/exports/${suite_name}.csv" "${export_args[@]}"
-            llm-diff report "$output_file" --format ndjson --output "artifacts/exports/${suite_name}.ndjson" "${export_args[@]}"
-            llm-diff report "$output_file" --format junit --output "artifacts/exports/${suite_name}.junit.xml" "${export_args[@]}"
+            llm-diff report "$output_file" --format csv --output "artifacts/exports/${suite_name}.csv" "${export_args_csv[@]}"
+            llm-diff report "$output_file" --format ndjson --output "artifacts/exports/${suite_name}.ndjson" "${export_args_ndjson[@]}"
+            llm-diff report "$output_file" --format junit --output "artifacts/exports/${suite_name}.junit.xml" "${export_args_junit[@]}"
           done < suites_to_run.txt
 
       - name: Upload suite reports

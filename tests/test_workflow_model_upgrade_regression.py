@@ -41,6 +41,10 @@ def test_model_upgrade_workflow_has_factual_connector_inputs_and_export_wiring()
         "export_s3_bucket",
         "export_s3_prefix",
         "export_s3_region",
+        "export_bq_project",
+        "export_bq_dataset",
+        "export_bq_table",
+        "export_bq_location",
     ):
         _assert_input_present(dispatch_inputs, key)
         _assert_input_present(call_inputs, key)
@@ -74,6 +78,11 @@ def test_model_upgrade_workflow_has_factual_connector_inputs_and_export_wiring()
     assert '--export-s3-bucket "$EXPORT_S3_BUCKET"' in run_script
     assert '--export-s3-prefix "$EXPORT_S3_PREFIX"' in run_script
     assert '--export-s3-region "$EXPORT_S3_REGION"' in run_script
+    assert '--export-bq-project "$EXPORT_BQ_PROJECT"' in run_script
+    assert '--export-bq-dataset "$EXPORT_BQ_DATASET"' in run_script
+    assert '--export-bq-table "$EXPORT_BQ_TABLE"' in run_script
+    assert '--export-bq-location "$EXPORT_BQ_LOCATION"' in run_script
+    assert 'elif [ "$EXPORT_CONNECTOR" = "bigquery" ]; then' in run_script
 
     export_step = next(
         step

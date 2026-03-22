@@ -216,7 +216,7 @@ def run(
 )
 @click.option(
     "--export-connector",
-    type=click.Choice(["none", "http", "s3"]),
+    type=click.Choice(["none", "http", "s3", "bigquery"]),
     default="none",
     show_default=True,
     help="Optional direct export connector for rendered report output",
@@ -255,6 +255,26 @@ def run(
     type=str,
     help="Optional S3 region override (uses AWS default chain when omitted)",
 )
+@click.option(
+    "--export-bq-project",
+    type=str,
+    help="BigQuery project id (required when --export-connector bigquery)",
+)
+@click.option(
+    "--export-bq-dataset",
+    type=str,
+    help="BigQuery dataset id (required when --export-connector bigquery)",
+)
+@click.option(
+    "--export-bq-table",
+    type=str,
+    help="BigQuery table id (required when --export-connector bigquery)",
+)
+@click.option(
+    "--export-bq-location",
+    type=str,
+    help="Optional BigQuery location override",
+)
 def report(
     report_file: str,
     format: str,
@@ -266,6 +286,10 @@ def report(
     export_s3_bucket: Optional[str],
     export_s3_prefix: str,
     export_s3_region: Optional[str],
+    export_bq_project: Optional[str],
+    export_bq_dataset: Optional[str],
+    export_bq_table: Optional[str],
+    export_bq_location: Optional[str],
 ) -> None:
     """
     Generate behavioral diff report from results.
@@ -319,6 +343,10 @@ def report(
                 s3_bucket=export_s3_bucket,
                 s3_prefix=export_s3_prefix,
                 s3_region=export_s3_region,
+                bq_project=export_bq_project,
+                bq_dataset=export_bq_dataset,
+                bq_table=export_bq_table,
+                bq_location=export_bq_location,
             )
             console.print("[green]External export delivered[/green]")
         except Exception as exc:
@@ -882,6 +910,56 @@ def _create_s3_client(region: Optional[str], timeout_seconds: float) -> Any:
     return boto3.client("s3", **kwargs)
 
 
+def _create_bigquery_client(project: str, location: Optional[str]) -> Any:
+    from google.cloud import bigquery
+
+    kwargs: dict[str, Any] = {"project": project.strip()}
+    if location and location.strip():
+        kwargs["location"] = location.strip()
+    return bigquery.Client(**kwargs)
+
+
+def _build_bigquery_rows_from_ndjson(content: str) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for line_number, line in enumerate(content.splitlines(), start=1):
+        raw_line = line.strip()
+        if not raw_line:
+            continue
+        try:
+            payload = json.loads(raw_line)
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"Invalid NDJSON row at line {line_number}: {exc.msg}") from exc
+        if not isinstance(payload, dict):
+            raise ValueError(f"Invalid NDJSON row at line {line_number}: expected JSON object")
+
+        metadata_payload = payload.get("metadata", {})
+        row = {
+            "report_id": str(payload.get("report_id", "")),
+            "suite_name": str(payload.get("suite_name", "")),
+            "model_a": str(payload.get("model_a", "")),
+            "model_b": str(payload.get("model_b", "")),
+            "test_id": str(payload.get("test_id", "")),
+            "behavior_category": str(payload.get("behavior_category", "")),
+            "status": str(payload.get("status", "")),
+            "is_semantically_same": bool(payload.get("is_semantically_same", False)),
+            "semantic_similarity": float(payload.get("semantic_similarity", 0.0)),
+            "is_regression": bool(payload.get("is_regression", False)),
+            "is_improvement": bool(payload.get("is_improvement", False)),
+            "confidence": float(payload.get("confidence", 0.0)),
+            "explanation": str(payload.get("explanation", "")),
+            "response_a": str(payload.get("response_a", "")),
+            "response_b": str(payload.get("response_b", "")),
+            "metadata_json": json.dumps(
+                metadata_payload,
+                ensure_ascii=False,
+                sort_keys=True,
+                default=str,
+            ),
+        }
+        rows.append(row)
+    return rows
+
+
 def _dispatch_report_export(
     report: BehaviorReport,
     report_format: str,
@@ -893,6 +971,10 @@ def _dispatch_report_export(
     s3_bucket: Optional[str],
     s3_prefix: str,
     s3_region: Optional[str],
+    bq_project: Optional[str],
+    bq_dataset: Optional[str],
+    bq_table: Optional[str],
+    bq_location: Optional[str],
 ) -> None:
     if timeout_seconds <= 0:
         raise ValueError("export_timeout must be > 0")
@@ -958,7 +1040,33 @@ def _dispatch_report_export(
         )
         return
 
-    raise ValueError(f"Unsupported export connector '{connector}'. Supported: none, http, s3.")
+    if normalized == "bigquery":
+        if report_format != "ndjson":
+            raise ValueError("export_connector 'bigquery' supports only --format ndjson.")
+        if not bq_project or not bq_project.strip():
+            raise ValueError("export_bq_project is required when export_connector is 'bigquery'.")
+        if not bq_dataset or not bq_dataset.strip():
+            raise ValueError("export_bq_dataset is required when export_connector is 'bigquery'.")
+        if not bq_table or not bq_table.strip():
+            raise ValueError("export_bq_table is required when export_connector is 'bigquery'.")
+
+        rows = _build_bigquery_rows_from_ndjson(content)
+        if not rows:
+            return
+
+        project = bq_project.strip()
+        dataset = bq_dataset.strip()
+        table = bq_table.strip()
+        table_id = f"{project}.{dataset}.{table}"
+        client = _create_bigquery_client(project=project, location=bq_location)
+        errors = client.insert_rows_json(table_id, rows, timeout=timeout_seconds)
+        if errors:
+            raise RuntimeError(f"BigQuery insert failed for table '{table_id}': {errors}")
+        return
+
+    raise ValueError(
+        f"Unsupported export connector '{connector}'. Supported: none, http, s3, bigquery."
+    )
 
 
 def _format_markdown(report: BehaviorReport) -> str:
