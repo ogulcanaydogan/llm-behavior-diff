@@ -1061,6 +1061,184 @@ def test_report_s3_export_connector_requires_bucket(tmp_path: Path) -> None:
     assert "export_s3_bucket is required" in result.output
 
 
+def test_report_bigquery_export_connector_success(tmp_path: Path, monkeypatch) -> None:
+    report_path = tmp_path / "report_bigquery_export.json"
+    ndjson_path = tmp_path / "report_bigquery_export.ndjson"
+    captured: dict[str, object] = {}
+
+    report = BehaviorReport(
+        model_a="gpt-4o",
+        model_b="gpt-4.5",
+        suite_name="suite_bigquery_export",
+        total_tests=1,
+        total_diffs=1,
+        regressions=0,
+        improvements=1,
+        duration_seconds=0.4,
+        diff_results=[
+            DiffResult(
+                test_id="bq_001",
+                model_a="gpt-4o",
+                model_b="gpt-4.5",
+                response_a="a",
+                response_b="b",
+                is_semantically_same=False,
+                semantic_similarity=0.11,
+                behavior_category=BehaviorCategory.KNOWLEDGE_CHANGE,
+                is_regression=False,
+                is_improvement=True,
+                confidence=0.8,
+                explanation="improvement",
+                metadata={"comparator": "format"},
+            )
+        ],
+    )
+    report_path.write_text(json.dumps(report.model_dump(mode="json"), indent=2), encoding="utf-8")
+
+    class FakeBigQueryClient:
+        def insert_rows_json(self, table: str, rows: list[dict[str, object]], timeout: float):
+            captured["table"] = table
+            captured["rows"] = rows
+            captured["timeout"] = timeout
+            return []
+
+    def fake_create_bigquery_client(project: str, location: str | None):
+        captured["project"] = project
+        captured["location"] = location
+        return FakeBigQueryClient()
+
+    monkeypatch.setattr(
+        "llm_behavior_diff.cli._create_bigquery_client", fake_create_bigquery_client
+    )
+
+    result = CliRunner().invoke(
+        main,
+        [
+            "report",
+            str(report_path),
+            "--format",
+            "ndjson",
+            "--output",
+            str(ndjson_path),
+            "--export-connector",
+            "bigquery",
+            "--export-bq-project",
+            "analytics-prj",
+            "--export-bq-dataset",
+            "llm_diff",
+            "--export-bq-table",
+            "diff_rows",
+            "--export-bq-location",
+            "EU",
+            "--export-timeout",
+            "5",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert "External export delivered" in result.output
+    assert captured["project"] == "analytics-prj"
+    assert captured["location"] == "EU"
+    assert captured["table"] == "analytics-prj.llm_diff.diff_rows"
+    assert captured["timeout"] == 5.0
+    rows = captured["rows"]
+    assert isinstance(rows, list)
+    assert len(rows) == 1
+    row = rows[0]
+    assert isinstance(row, dict)
+    assert row["test_id"] == "bq_001"
+    assert row["metadata_json"] == '{"comparator": "format"}'
+
+
+def test_report_bigquery_export_connector_requires_fields(tmp_path: Path) -> None:
+    report_path = tmp_path / "report_bigquery_export_missing_fields.json"
+    ndjson_path = tmp_path / "report_bigquery_export_missing_fields.ndjson"
+    report = BehaviorReport(
+        model_a="gpt-4o",
+        model_b="gpt-4.5",
+        suite_name="suite_bigquery_export",
+        total_tests=0,
+        total_diffs=0,
+        regressions=0,
+        improvements=0,
+        duration_seconds=0.0,
+    )
+    report_path.write_text(json.dumps(report.model_dump(mode="json"), indent=2), encoding="utf-8")
+
+    scenarios = [
+        (
+            ["--export-bq-dataset", "llm_diff", "--export-bq-table", "diff_rows"],
+            "export_bq_project is required",
+        ),
+        (
+            ["--export-bq-project", "analytics-prj", "--export-bq-table", "diff_rows"],
+            "export_bq_dataset is required",
+        ),
+        (
+            ["--export-bq-project", "analytics-prj", "--export-bq-dataset", "llm_diff"],
+            "export_bq_table is required",
+        ),
+    ]
+
+    for flags, expected_error in scenarios:
+        result = CliRunner().invoke(
+            main,
+            [
+                "report",
+                str(report_path),
+                "--format",
+                "ndjson",
+                "--output",
+                str(ndjson_path),
+                "--export-connector",
+                "bigquery",
+                *flags,
+            ],
+        )
+
+        assert result.exit_code == 1
+        assert expected_error in result.output
+
+
+def test_report_bigquery_export_connector_rejects_non_ndjson_format(tmp_path: Path) -> None:
+    report_path = tmp_path / "report_bigquery_export_non_ndjson.json"
+    csv_path = tmp_path / "report_bigquery_export_non_ndjson.csv"
+    report = BehaviorReport(
+        model_a="gpt-4o",
+        model_b="gpt-4.5",
+        suite_name="suite_bigquery_export",
+        total_tests=0,
+        total_diffs=0,
+        regressions=0,
+        improvements=0,
+        duration_seconds=0.0,
+    )
+    report_path.write_text(json.dumps(report.model_dump(mode="json"), indent=2), encoding="utf-8")
+
+    result = CliRunner().invoke(
+        main,
+        [
+            "report",
+            str(report_path),
+            "--format",
+            "csv",
+            "--output",
+            str(csv_path),
+            "--export-connector",
+            "bigquery",
+            "--export-bq-project",
+            "analytics-prj",
+            "--export-bq-dataset",
+            "llm_diff",
+            "--export-bq-table",
+            "diff_rows",
+        ],
+    )
+
+    assert result.exit_code == 1
+    assert "supports only --format ndjson" in result.output
+
+
 def test_report_export_connector_rejects_table_format(tmp_path: Path) -> None:
     report_path = tmp_path / "report_table_export.json"
     report = BehaviorReport(

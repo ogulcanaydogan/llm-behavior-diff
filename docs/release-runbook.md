@@ -21,7 +21,7 @@ This runbook covers manual distribution and model-upgrade gating workflows.
 | --- | --- | --- |
 | `publish-pypi.yml` | OIDC trusted publishing OR `TEST_PYPI_API_TOKEN` / `PYPI_API_TOKEN` fallback | `id-token: write`, `contents: read` |
 | `docker-image.yml` | `GITHUB_TOKEN` (provided by Actions) | `packages: write`, `contents: read` |
-| `model-upgrade-regression.yml` | `OPENAI_API_KEY` and/or `ANTHROPIC_API_KEY` based on model ids; optional `EXPORT_CONNECTOR_API_KEY` for HTTP export dispatch; optional `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` / `AWS_SESSION_TOKEN` for S3 export dispatch (no extra secret needed for `factual_connector=wikipedia`) | `contents: read` |
+| `model-upgrade-regression.yml` | `OPENAI_API_KEY` and/or `ANTHROPIC_API_KEY` based on model ids; optional `EXPORT_CONNECTOR_API_KEY` for HTTP export dispatch; optional `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` / `AWS_SESSION_TOKEN` for S3 export dispatch; optional Google ADC credential setup for BigQuery export dispatch (no extra secret needed for `factual_connector=wikipedia`) | `contents: read` |
 
 ## 1) Package Publish (Manual)
 
@@ -85,12 +85,16 @@ Inputs:
 - `factual_connector` (optional, default `none`): `none|wikipedia`
 - `factual_connector_timeout` (optional, default `8`)
 - `factual_connector_max_results` (optional, default `3`)
-- `export_connector` (optional, default `none`): `none|http|s3`
+- `export_connector` (optional, default `none`): `none|http|s3|bigquery`
 - `export_connector_endpoint` (optional): required when `export_connector=http`
 - `export_connector_timeout` (optional, default `10`)
 - `export_s3_bucket` (optional): required when `export_connector=s3`
 - `export_s3_prefix` (optional, default empty)
 - `export_s3_region` (optional)
+- `export_bq_project` (optional): required when `export_connector=bigquery`
+- `export_bq_dataset` (optional): required when `export_connector=bigquery`
+- `export_bq_table` (optional): required when `export_connector=bigquery`
+- `export_bq_location` (optional)
 
 Default suite set when `suite_list` is empty:
 
@@ -137,6 +141,11 @@ Artifacts:
   to the configured endpoint (`export_connector_endpoint`) via report command dispatch.
 - When `export_connector=s3` is enabled, each generated export is also uploaded to
   the configured S3 bucket/prefix (`export_s3_bucket` / `export_s3_prefix`).
+- When `export_connector=bigquery` is enabled, only NDJSON exports are uploaded to
+  BigQuery (`export_bq_project.export_bq_dataset.export_bq_table`), while CSV/JUnit
+  artifacts are still generated and uploaded as workflow artifacts.
+- BigQuery export follows fail-fast semantics: missing config, authentication errors,
+  or row insert errors fail the command/workflow step.
 - When external factual connector is enabled, reports include metadata-only
   `factual_external` comparator payloads and run-level `factual_external_summary`.
 
