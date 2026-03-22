@@ -948,6 +948,119 @@ def test_report_http_export_connector_requires_endpoint(tmp_path: Path) -> None:
     assert "export_endpoint is required" in result.output
 
 
+def test_report_s3_export_connector_success(tmp_path: Path, monkeypatch) -> None:
+    report_path = tmp_path / "report_s3_export.json"
+    ndjson_path = tmp_path / "report_s3_export.ndjson"
+    captured: dict[str, object] = {}
+
+    report = BehaviorReport(
+        model_a="gpt-4o",
+        model_b="gpt-4.5",
+        suite_name="suite_s3_export",
+        total_tests=1,
+        total_diffs=1,
+        regressions=0,
+        improvements=1,
+        duration_seconds=0.4,
+        diff_results=[
+            DiffResult(
+                test_id="s3_001",
+                model_a="gpt-4o",
+                model_b="gpt-4.5",
+                response_a="a",
+                response_b="b",
+                is_semantically_same=False,
+                semantic_similarity=0.11,
+                behavior_category=BehaviorCategory.KNOWLEDGE_CHANGE,
+                is_regression=False,
+                is_improvement=True,
+                confidence=0.8,
+                explanation="improvement",
+            )
+        ],
+    )
+    report_path.write_text(json.dumps(report.model_dump(mode="json"), indent=2), encoding="utf-8")
+
+    class FakeS3Client:
+        def put_object(self, **kwargs):
+            captured["kwargs"] = kwargs
+            return {"ETag": "test-etag"}
+
+    def fake_create_s3_client(region: str | None, timeout_seconds: float):
+        captured["region"] = region
+        captured["timeout"] = timeout_seconds
+        return FakeS3Client()
+
+    monkeypatch.setattr("llm_behavior_diff.cli._create_s3_client", fake_create_s3_client)
+
+    result = CliRunner().invoke(
+        main,
+        [
+            "report",
+            str(report_path),
+            "--format",
+            "ndjson",
+            "--output",
+            str(ndjson_path),
+            "--export-connector",
+            "s3",
+            "--export-s3-bucket",
+            "llm-diff-bucket",
+            "--export-s3-prefix",
+            "team-a/exports",
+            "--export-s3-region",
+            "eu-west-1",
+            "--export-timeout",
+            "7",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert "External export delivered" in result.output
+    assert captured["region"] == "eu-west-1"
+    assert captured["timeout"] == 7.0
+    kwargs = captured["kwargs"]
+    assert isinstance(kwargs, dict)
+    assert kwargs["Bucket"] == "llm-diff-bucket"
+    assert kwargs["ContentType"] == "application/x-ndjson"
+    assert isinstance(kwargs["Body"], bytes)
+    assert kwargs["Key"].startswith("team-a/exports/suite_s3_export/")
+    assert kwargs["Key"].endswith("/report.ndjson")
+
+
+def test_report_s3_export_connector_requires_bucket(tmp_path: Path) -> None:
+    report_path = tmp_path / "report_s3_export_missing_bucket.json"
+    csv_path = tmp_path / "report_s3_export_missing_bucket.csv"
+    report = BehaviorReport(
+        model_a="gpt-4o",
+        model_b="gpt-4.5",
+        suite_name="suite_s3_export",
+        total_tests=0,
+        total_diffs=0,
+        regressions=0,
+        improvements=0,
+        duration_seconds=0.0,
+    )
+    report_path.write_text(json.dumps(report.model_dump(mode="json"), indent=2), encoding="utf-8")
+
+    result = CliRunner().invoke(
+        main,
+        [
+            "report",
+            str(report_path),
+            "--format",
+            "csv",
+            "--output",
+            str(csv_path),
+            "--export-connector",
+            "s3",
+        ],
+    )
+
+    assert result.exit_code == 1
+    assert "export_s3_bucket is required" in result.output
+
+
 def test_report_export_connector_rejects_table_format(tmp_path: Path) -> None:
     report_path = tmp_path / "report_table_export.json"
     report = BehaviorReport(

@@ -68,7 +68,7 @@
   - `csv` and `junit` stay metric/status focused and do not include raw responses.
   - `ndjson` includes raw responses and comparator metadata per diff row.
   - table/markdown include run-level bootstrap + Wilson CI when available.
-  - optional direct connector dispatch (`--export-connector http`) posts rendered content externally.
+  - optional direct connector dispatch (`--export-connector http|s3`) posts rendered content externally.
 - `compare` renders run-to-run metric deltas and optional markdown output.
 - `compare` also computes bootstrap delta CI + permutation p-value from per-test outcomes when both reports include `diff_results`.
 - `gate` evaluates one JSON report with selected tier + pack/file policy and returns CI-friendly exit codes.

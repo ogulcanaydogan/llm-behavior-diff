@@ -43,7 +43,7 @@ Ad-hoc prompt checks miss these patterns and are hard to reproduce in CI.
 - Single-suite run command with retry/rate-limit/cost controls
 - JSON report artifacts for CI and governance workflows
 - Report rendering in `table`, `json`, `markdown`, `csv`, `ndjson`, `junit`, and interactive self-contained `html`
-- Optional direct export connector for rendered reports (`--export-connector http`)
+- Optional direct export connectors for rendered reports (`--export-connector http|s3`)
 - Run-to-run compare command with delta metrics
 - Policy gate command for deterministic release decisions (`strict|balanced|permissive`)
 
@@ -66,6 +66,9 @@ export LLM_DIFF_LOCAL_BASE_URL=http://localhost:11434/v1
 # optional:
 # export LLM_DIFF_LOCAL_API_KEY=local-api-key
 # export LLM_DIFF_EXPORT_API_KEY=export-api-key
+# export AWS_ACCESS_KEY_ID=...
+# export AWS_SECRET_ACCESS_KEY=...
+# export AWS_SESSION_TOKEN=...   # optional
 ```
 
 ### 2) Create a suite
@@ -125,6 +128,9 @@ llm-diff report run_report.json --format ndjson -o run_report.ndjson
 llm-diff report run_report.json --format junit -o run_report.junit.xml
 llm-diff report run_report.json --format csv -o run_report.csv \
   --export-connector http --export-endpoint https://example.com/ingest
+llm-diff report run_report.json --format ndjson -o run_report.ndjson \
+  --export-connector s3 --export-s3-bucket my-llm-diff-bucket \
+  --export-s3-prefix team-a/exports --export-s3-region eu-west-1
 ```
 
 ### 6) Compare two runs
@@ -230,7 +236,9 @@ Core flags:
 ### `llm-diff report`
 
 Render one run report as `table | json | html | markdown | csv | ndjson | junit`.
-Optional direct export connector: `--export-connector http --export-endpoint ...`.
+Optional direct export connectors:
+- HTTP: `--export-connector http --export-endpoint ...`
+- S3: `--export-connector s3 --export-s3-bucket ... [--export-s3-prefix ...] [--export-s3-region ...]`
 
 ### `llm-diff compare`
 
@@ -252,7 +260,7 @@ Evaluate one run report with deterministic policy tiers:
 - `release-check.yml`: build/twine/wheel smoke checks
 - `publish-pypi.yml`: manual TestPyPI/PyPI publish flow
 - `docker-image.yml`: PR/master build+smoke, optional manual GHCR push
-- `model-upgrade-regression.yml`: manual/reusable regression gate (`gate_policy`, `gate_policy_pack`, optional `gate_policy_file`; optional factual connector inputs; default `strict + core`) + per-suite export artifacts (`csv`, `ndjson`, `junit`)
+- `model-upgrade-regression.yml`: manual/reusable regression gate (`gate_policy`, `gate_policy_pack`, optional `gate_policy_file`; optional factual connector inputs; default `strict + core`) + per-suite export artifacts (`csv`, `ndjson`, `junit`) + optional direct export connectors (`http|s3`)
 - Node24 deprecation closure: workflows keep `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24=true` and now run on Node24-ready major action pins.
 - Workflow security hardening: all third-party actions are pinned to full commit SHAs; Dependabot auto-updates `github-actions` minor/patch versions weekly, while major bumps are handled in planned maintenance windows.
 
@@ -289,7 +297,7 @@ Implemented now:
 - bootstrap delta CI + permutation p-value (compare rows)
 - risk-tier gate policies (CLI + model-upgrade workflow)
 - enterprise-ready report export artifacts (`csv`, `ndjson`, `junit`)
-- optional direct export connector (`http`, opt-in from `report` command and workflow)
+- optional direct export connectors (`http`, `s3`, opt-in from `report` command and workflow)
 - suite templates and CI distribution workflows
 
 Committed roadmap status:
@@ -298,7 +306,7 @@ Committed roadmap status:
 
 Future exploration candidates (not committed yet):
 
-- provider-specific external sinks (for example S3 or warehouse-native connectors)
+- additional provider-specific external sinks (for example warehouse-native connectors)
 
 ## Contributing
 

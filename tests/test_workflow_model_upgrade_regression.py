@@ -38,6 +38,9 @@ def test_model_upgrade_workflow_has_factual_connector_inputs_and_export_wiring()
         "export_connector",
         "export_connector_endpoint",
         "export_connector_timeout",
+        "export_s3_bucket",
+        "export_s3_prefix",
+        "export_s3_region",
     ):
         _assert_input_present(dispatch_inputs, key)
         _assert_input_present(call_inputs, key)
@@ -66,8 +69,11 @@ def test_model_upgrade_workflow_has_factual_connector_inputs_and_export_wiring()
         in run_script
     )
     assert '--export-connector "$EXPORT_CONNECTOR"' in run_script
-    assert '--export-endpoint "$EXPORT_CONNECTOR_ENDPOINT"' in run_script
     assert '--export-timeout "$EXPORT_CONNECTOR_TIMEOUT"' in run_script
+    assert '--export-endpoint "$EXPORT_CONNECTOR_ENDPOINT"' in run_script
+    assert '--export-s3-bucket "$EXPORT_S3_BUCKET"' in run_script
+    assert '--export-s3-prefix "$EXPORT_S3_PREFIX"' in run_script
+    assert '--export-s3-region "$EXPORT_S3_REGION"' in run_script
 
     export_step = next(
         step
