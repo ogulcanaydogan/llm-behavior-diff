@@ -9,12 +9,14 @@ import asyncio
 import csv
 import io
 import json
+import os
 import xml.etree.ElementTree as ET
 from html import escape as html_escape
 from pathlib import Path
 from typing import Any, Optional
 
 import click
+import httpx
 from rich.console import Console
 from rich.table import Table
 
@@ -212,7 +214,39 @@ def run(
     type=click.Path(),
     help="Output file (omit for stdout)",
 )
-def report(report_file: str, format: str, output: Optional[str]) -> None:
+@click.option(
+    "--export-connector",
+    type=click.Choice(["none", "http"]),
+    default="none",
+    show_default=True,
+    help="Optional direct export connector for rendered report output",
+)
+@click.option(
+    "--export-endpoint",
+    type=str,
+    help="Export connector endpoint URL (required when --export-connector http)",
+)
+@click.option(
+    "--export-timeout",
+    type=float,
+    default=10.0,
+    show_default=True,
+    help="Export connector timeout in seconds",
+)
+@click.option(
+    "--export-api-key",
+    type=str,
+    help="Optional export API key (fallback: LLM_DIFF_EXPORT_API_KEY env var)",
+)
+def report(
+    report_file: str,
+    format: str,
+    output: Optional[str],
+    export_connector: str,
+    export_endpoint: Optional[str],
+    export_timeout: float,
+    export_api_key: Optional[str],
+) -> None:
     """
     Generate behavioral diff report from results.
 
@@ -227,26 +261,46 @@ def report(report_file: str, format: str, output: Optional[str]) -> None:
         console.print(f"[red]Error loading report: {exc}[/red]")
         raise click.Abort() from exc
 
+    rendered_content: str | None = None
     if format == "table":
         _print_table_report(report_obj)
     elif format == "json":
-        content = json.dumps(report_obj.model_dump(), indent=2)
-        _output(content, output)
+        rendered_content = json.dumps(report_obj.model_dump(), indent=2)
+        _output(rendered_content, output)
     elif format == "markdown":
-        content = _format_markdown(report_obj)
-        _output(content, output)
+        rendered_content = _format_markdown(report_obj)
+        _output(rendered_content, output)
     elif format == "html":
-        content = _format_html(report_obj)
-        _output(content, output)
+        rendered_content = _format_html(report_obj)
+        _output(rendered_content, output)
     elif format == "csv":
-        content = _format_csv(report_obj)
-        _output(content, output)
+        rendered_content = _format_csv(report_obj)
+        _output(rendered_content, output)
     elif format == "ndjson":
-        content = _format_ndjson(report_obj)
-        _output(content, output)
+        rendered_content = _format_ndjson(report_obj)
+        _output(rendered_content, output)
     elif format == "junit":
-        content = _format_junit(report_obj)
-        _output(content, output)
+        rendered_content = _format_junit(report_obj)
+        _output(rendered_content, output)
+
+    if export_connector != "none":
+        if rendered_content is None:
+            console.print("[red]Export connector requires non-table report format output.[/red]")
+            raise click.Abort()
+        try:
+            _dispatch_report_export(
+                report=report_obj,
+                report_format=format,
+                content=rendered_content,
+                connector=export_connector,
+                endpoint=export_endpoint,
+                timeout_seconds=export_timeout,
+                api_key=export_api_key,
+            )
+            console.print("[green]External export delivered[/green]")
+        except Exception as exc:
+            console.print(f"[red]Export failed: {exc}[/red]")
+            raise click.Abort() from exc
 
 
 @main.command()
@@ -747,6 +801,81 @@ def _format_junit(report: BehaviorReport) -> str:
     if isinstance(xml_payload, bytes):
         return xml_payload.decode("utf-8")
     return str(xml_payload)
+
+
+def _resolve_export_api_key(explicit_api_key: Optional[str]) -> Optional[str]:
+    if explicit_api_key and explicit_api_key.strip():
+        return explicit_api_key.strip()
+    env_api_key = os.getenv("LLM_DIFF_EXPORT_API_KEY", "").strip()
+    return env_api_key or None
+
+
+def _content_type_for_report_format(report_format: str) -> str:
+    mapping = {
+        "json": "application/json",
+        "html": "text/html",
+        "markdown": "text/markdown",
+        "csv": "text/csv",
+        "ndjson": "application/x-ndjson",
+        "junit": "application/xml",
+    }
+    return mapping.get(report_format, "text/plain")
+
+
+def _dispatch_report_export(
+    report: BehaviorReport,
+    report_format: str,
+    content: str,
+    connector: str,
+    endpoint: Optional[str],
+    timeout_seconds: float,
+    api_key: Optional[str],
+) -> None:
+    if timeout_seconds <= 0:
+        raise ValueError("export_timeout must be > 0")
+
+    normalized = connector.strip().lower()
+    if normalized == "none":
+        return
+    if normalized != "http":
+        raise ValueError(f"Unsupported export connector '{connector}'. Supported: none, http.")
+    if not endpoint or not endpoint.strip():
+        raise ValueError("export_endpoint is required when export_connector is 'http'.")
+
+    headers = {
+        "Content-Type": "application/json",
+        "User-Agent": "llm-behavior-diff/0.1 report-export",
+    }
+    resolved_api_key = _resolve_export_api_key(api_key)
+    if resolved_api_key:
+        headers["Authorization"] = f"Bearer {resolved_api_key}"
+
+    payload = {
+        "event": "llm_behavior_diff_report_export",
+        "report": {
+            "id": report.id,
+            "suite_name": report.suite_name,
+            "model_a": report.model_a,
+            "model_b": report.model_b,
+            "total_tests": report.total_tests,
+            "total_diffs": report.total_diffs,
+            "regressions": report.regressions,
+            "improvements": report.improvements,
+        },
+        "export": {
+            "format": report_format,
+            "content_type": _content_type_for_report_format(report_format),
+            "content": content,
+        },
+    }
+
+    response = httpx.post(
+        endpoint.strip(),
+        json=payload,
+        headers=headers,
+        timeout=timeout_seconds,
+    )
+    response.raise_for_status()
 
 
 def _format_markdown(report: BehaviorReport) -> str:

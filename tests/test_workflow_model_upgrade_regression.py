@@ -1,4 +1,4 @@
-"""Workflow guard for model-upgrade regression factual connector inputs/wiring."""
+"""Workflow guard for model-upgrade regression connector inputs/wiring."""
 
 from __future__ import annotations
 
@@ -35,6 +35,9 @@ def test_model_upgrade_workflow_has_factual_connector_inputs_and_export_wiring()
         "factual_connector",
         "factual_connector_timeout",
         "factual_connector_max_results",
+        "export_connector",
+        "export_connector_endpoint",
+        "export_connector_timeout",
     ):
         _assert_input_present(dispatch_inputs, key)
         _assert_input_present(call_inputs, key)
@@ -62,6 +65,9 @@ def test_model_upgrade_workflow_has_factual_connector_inputs_and_export_wiring()
         'llm-diff report "$output_file" --format junit --output "artifacts/exports/${suite_name}.junit.xml"'
         in run_script
     )
+    assert '--export-connector "$EXPORT_CONNECTOR"' in run_script
+    assert '--export-endpoint "$EXPORT_CONNECTOR_ENDPOINT"' in run_script
+    assert '--export-timeout "$EXPORT_CONNECTOR_TIMEOUT"' in run_script
 
     export_step = next(
         step
