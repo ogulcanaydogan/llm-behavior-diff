@@ -104,6 +104,7 @@ The `git diff` for LLM behavior. When you upgrade a model version, know exactly 
 - [x] Artifact-first enterprise export formats in `report` command (`csv`, `ndjson`, `junit`)
 - [x] Model-upgrade workflow parity: per-suite JSON + export artifacts upload
 - [x] Docs truth-sync for export behavior and artifact contracts
+- [x] Optional direct export connector (`http`) for report command + workflow parity
 
 ## Current Status
 No open committed roadmap items at this time. Future work will be tracked as new phases when prioritized.

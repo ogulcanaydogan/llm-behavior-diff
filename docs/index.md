@@ -18,6 +18,7 @@
 - Aggregate regressions/improvements with a fixed precedence policy
 - Track token usage and estimated cost metadata
 - Generate table/json/html/markdown/csv/ndjson/junit reports
+- Optionally dispatch rendered report exports to external HTTP endpoints
 - Enforce upgrade gates in CI using built-in suites
 
 ## Fast Example
