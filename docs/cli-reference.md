@@ -39,6 +39,9 @@ Options:
 - `--rate-limit-rps`: per-model request rate limit, `0` disables it (default `0`)
 - `--pricing-file`: optional YAML/JSON pricing override file
 - `--judge-model`: optional LLM-as-judge model id (metadata-only, non-fatal, semantic-diff tests only)
+- `--factual-connector`: `none` (default) or `wikipedia` (metadata-only, non-fatal, non-overriding)
+- `--factual-connector-timeout`: per-request timeout in seconds (default `8.0`)
+- `--factual-connector-max-results`: max connector evidence rows per test (default `3`)
 
 Model id formats:
 
@@ -173,6 +176,7 @@ tiers:
 - Invalid input/suite/report parsing returns non-zero exit.
 - `run` fail-fast is default; set `--continue-on-error` for partial progress mode.
 - `--judge-model` never overrides deterministic final category/regression flags; it only adds metadata.
+- `--factual-connector` never overrides deterministic final category/regression flags; it only adds metadata.
 - `compare` includes cost delta row only when both reports include cost metadata.
 - `compare` includes significance rows only when both reports include non-empty `diff_results`.
 - `gate` exits with:

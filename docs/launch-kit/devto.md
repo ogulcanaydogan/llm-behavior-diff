@@ -94,13 +94,12 @@ Implemented:
 
 ## Known Limits
 
-- factual comparator is deterministic heuristics only (no external fact API)
+- factual classification remains deterministic; external connector is metadata-only and non-overriding
 - significance layer is metadata-only (does not enforce pass/fail by itself)
 - advanced methods beyond bootstrap/Wilson/permutation are not included in this version
 
 ## Future Exploration (Not Committed Roadmap)
 
-- optional external factual validation connectors
 - broader enterprise reporting/export integrations
 - additional statistical methods beyond bootstrap/Wilson/permutation
 

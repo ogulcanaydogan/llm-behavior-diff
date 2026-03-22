@@ -39,6 +39,7 @@ Ad-hoc prompt checks miss these patterns and are hard to reproduce in CI.
 ## What You Get
 
 - Comparator-first deterministic diffing (`semantic`, `factual`, `format`, `behavioral`)
+- Optional external factual validation (`--factual-connector wikipedia`, metadata-only)
 - Single-suite run command with retry/rate-limit/cost controls
 - JSON report artifacts for CI and governance workflows
 - Report rendering in `table`, `json`, `markdown`, and interactive self-contained `html`
@@ -103,6 +104,9 @@ llm-diff run \
   --model-a gpt-4o \
   --model-b gpt-4.5 \
   --suite quick_suite.yaml \
+  --factual-connector wikipedia \
+  --factual-connector-timeout 8 \
+  --factual-connector-max-results 3 \
   --max-workers 4 \
   --max-retries 3 \
   --rate-limit-rps 2 \
@@ -142,6 +146,7 @@ llm-diff gate candidate_run.json --policy balanced --format json -o gate_result.
 4. Apply deterministic comparators:
    - `semantic`: semantic equivalence gate
    - `factual`: hallucination/knowledge-change rules
+   - optional `factual_external`: connector-backed factual evidence signal (metadata-only)
    - `format`: structure/constraint compliance checks
    - `behavioral`: expected-behavior coverage deltas
    - optional `judge`: LLM-as-judge on semantic diffs (metadata-only)
@@ -211,6 +216,9 @@ Core flags:
 - `--max-workers`, `--max-retries`, `--rate-limit-rps`
 - `--pricing-file`
 - `--judge-model` (optional metadata-only LLM judge)
+- `--factual-connector` (`none|wikipedia`, default `none`)
+- `--factual-connector-timeout` (default `8.0`)
+- `--factual-connector-max-results` (default `3`)
 
 ### `llm-diff report`
 
@@ -236,7 +244,7 @@ Evaluate one run report with deterministic policy tiers:
 - `release-check.yml`: build/twine/wheel smoke checks
 - `publish-pypi.yml`: manual TestPyPI/PyPI publish flow
 - `docker-image.yml`: PR/master build+smoke, optional manual GHCR push
-- `model-upgrade-regression.yml`: manual/reusable regression gate (`gate_policy`, `gate_policy_pack`, optional `gate_policy_file`; default `strict + core`)
+- `model-upgrade-regression.yml`: manual/reusable regression gate (`gate_policy`, `gate_policy_pack`, optional `gate_policy_file`; optional factual connector inputs; default `strict + core`)
 - Node24 deprecation closure: workflows keep `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24=true` and now run on Node24-ready major action pins.
 - Workflow security hardening: all third-party actions are pinned to full commit SHAs; Dependabot auto-updates `github-actions` minor/patch versions weekly, while major bumps are handled in planned maintenance windows.
 
@@ -267,6 +275,7 @@ Implemented now:
 
 - deterministic comparator pipeline
 - optional LLM-as-judge (metadata-only, opt-in)
+- optional external factual connector (`wikipedia`, metadata-only, opt-in)
 - retry/rate-limit/cost tracking
 - bootstrap + Wilson confidence intervals (run metadata)
 - bootstrap delta CI + permutation p-value (compare rows)
@@ -279,7 +288,6 @@ Committed roadmap status:
 
 Future exploration candidates (not committed yet):
 
-- optional external factual validation connectors
 - broader enterprise reporting/export integrations
 
 ## Contributing

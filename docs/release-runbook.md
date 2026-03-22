@@ -21,7 +21,7 @@ This runbook covers manual distribution and model-upgrade gating workflows.
 | --- | --- | --- |
 | `publish-pypi.yml` | OIDC trusted publishing OR `TEST_PYPI_API_TOKEN` / `PYPI_API_TOKEN` fallback | `id-token: write`, `contents: read` |
 | `docker-image.yml` | `GITHUB_TOKEN` (provided by Actions) | `packages: write`, `contents: read` |
-| `model-upgrade-regression.yml` | `OPENAI_API_KEY` and/or `ANTHROPIC_API_KEY` based on model ids | `contents: read` |
+| `model-upgrade-regression.yml` | `OPENAI_API_KEY` and/or `ANTHROPIC_API_KEY` based on model ids (no extra secret needed for `factual_connector=wikipedia`) | `contents: read` |
 
 ## 1) Package Publish (Manual)
 
@@ -82,6 +82,9 @@ Inputs:
 - `gate_policy` (optional, default `strict`): `strict|balanced|permissive`
 - `gate_policy_pack` (optional, default `core`): `core|risk_averse|velocity`
 - `gate_policy_file` (optional): repo-relative custom policy YAML path (takes precedence over pack)
+- `factual_connector` (optional, default `none`): `none|wikipedia`
+- `factual_connector_timeout` (optional, default `8`)
+- `factual_connector_max_results` (optional, default `3`)
 
 Default suite set when `suite_list` is empty:
 
@@ -120,6 +123,8 @@ Pack intent:
 Artifacts:
 
 - Per-suite JSON reports are uploaded for audit/debug.
+- When external factual connector is enabled, reports include metadata-only
+  `factual_external` comparator payloads and run-level `factual_external_summary`.
 
 ## 4) Local Pre-Flight Checklist
 
