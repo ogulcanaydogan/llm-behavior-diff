@@ -15,6 +15,7 @@ STALE_PHRASES = {
     "organization-specific policy packs and custom policy plugin hooks",
     "known gaps still planned:",
     "remaining planned items",
+    "optional external factual validation connectors",
 }
 
 

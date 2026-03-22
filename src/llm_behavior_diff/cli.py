@@ -107,6 +107,27 @@ def main() -> None:
         "is recorded in metadata without overriding deterministic final classification"
     ),
 )
+@click.option(
+    "--factual-connector",
+    type=click.Choice(["none", "wikipedia"]),
+    default="none",
+    show_default=True,
+    help="Optional external factual connector (metadata-only, non-fatal, non-overriding)",
+)
+@click.option(
+    "--factual-connector-timeout",
+    type=float,
+    default=8.0,
+    show_default=True,
+    help="Timeout in seconds for each external factual connector request",
+)
+@click.option(
+    "--factual-connector-max-results",
+    type=int,
+    default=3,
+    show_default=True,
+    help="Max external factual evidence results per test",
+)
 def run(
     model_a: str,
     model_b: str,
@@ -119,6 +140,9 @@ def run(
     rate_limit_rps: float,
     pricing_file: Optional[str],
     judge_model: Optional[str],
+    factual_connector: str,
+    factual_connector_timeout: float,
+    factual_connector_max_results: int,
 ) -> None:
     """
     Run behavioral diff tests comparing two model versions.
@@ -155,6 +179,9 @@ def run(
             rate_limit_rps=rate_limit_rps,
             pricing_file=pricing_file,
             judge_model=judge_model,
+            factual_connector=factual_connector,
+            factual_connector_timeout=factual_connector_timeout,
+            factual_connector_max_results=factual_connector_max_results,
         )
         report_obj = asyncio.run(runner.run_suite(suite_obj))
     except Exception as exc:

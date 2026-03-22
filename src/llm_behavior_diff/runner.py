@@ -43,9 +43,12 @@ from .comparators.base import (
 )
 from .comparators.behavioral import BehavioralComparator
 from .comparators.factual import FactualComparator
+from .comparators.factual_external import ExternalFactualComparator
 from .comparators.format import FormatComparator
 from .comparators.judge import JudgeComparator
 from .comparators.semantic import SemanticComparator
+from .connectors.base import FactualConnector
+from .connectors.wikipedia import WikipediaConnector
 from .schema import BehaviorCategory, BehaviorReport, DiffResult, TestCase, TestSuite
 from .statistics import (
     DEFAULT_BOOTSTRAP_RESAMPLES,
@@ -81,6 +84,7 @@ _BUILTIN_MODEL_PRICING_USD_PER_1M: dict[str, dict[str, float]] = {
     "o1": {"input_per_1m": 15.0, "output_per_1m": 60.0},
     "o3": {"input_per_1m": 10.0, "output_per_1m": 40.0},
 }
+_SUPPORTED_FACTUAL_CONNECTORS = {"none", "wikipedia"}
 
 
 @dataclass(frozen=True)
@@ -196,6 +200,22 @@ def create_adapter(model: str) -> ModelAdapter:
     if provider == "local":
         return LocalAdapter(model=model_ref)
     raise ValueError(f"Unsupported provider '{provider}' for model '{model}'")
+
+
+def create_factual_connector(connector_name: str) -> FactualConnector | None:
+    """Create optional external factual connector from CLI/workflow value."""
+    normalized = connector_name.strip().lower()
+    if normalized not in _SUPPORTED_FACTUAL_CONNECTORS:
+        supported = ", ".join(sorted(_SUPPORTED_FACTUAL_CONNECTORS))
+        raise ValueError(
+            f"Unsupported factual connector '{connector_name}'. Supported values: {supported}."
+        )
+
+    if normalized == "none":
+        return None
+    if normalized == "wikipedia":
+        return WikipediaConnector()
+    return None
 
 
 def parse_model_reference(model: str) -> tuple[str | None, str]:
@@ -463,6 +483,9 @@ class BehaviorDiffRunner:
         model_a: str,
         model_b: str,
         judge_model: str | None = None,
+        factual_connector: str = "none",
+        factual_connector_timeout: float = 8.0,
+        factual_connector_max_results: int = 3,
         max_workers: int = 4,
         semantic_threshold: float = 0.85,
         continue_on_error: bool = False,
@@ -477,6 +500,7 @@ class BehaviorDiffRunner:
         behavioral_comparator: BehavioralComparator | None = None,
         factual_comparator: FactualComparator | None = None,
         format_comparator: FormatComparator | None = None,
+        external_factual_comparator: ExternalFactualComparator | None = None,
         judge_adapter: ModelAdapter | None = None,
         judge_comparator: JudgeComparator | None = None,
     ) -> None:
@@ -486,11 +510,18 @@ class BehaviorDiffRunner:
             raise ValueError("max_retries must be >= 0")
         if rate_limit_rps < 0:
             raise ValueError("rate_limit_rps must be >= 0")
+        if factual_connector_timeout <= 0:
+            raise ValueError("factual_connector_timeout must be > 0")
+        if factual_connector_max_results < 1:
+            raise ValueError("factual_connector_max_results must be >= 1")
 
         self.model_a = model_a
         self.model_b = model_b
         self.judge_model = judge_model
         judge_model_ref = self.judge_model
+        self.factual_connector_name = factual_connector.strip().lower()
+        self.factual_connector_timeout = factual_connector_timeout
+        self.factual_connector_max_results = factual_connector_max_results
         self.max_workers = max_workers
         self.continue_on_error = continue_on_error
         self.max_retries = max_retries
@@ -509,6 +540,16 @@ class BehaviorDiffRunner:
             self.semantic_threshold = float(semantic_threshold)
         self.behavioral_comparator = behavioral_comparator or BehavioralComparator()
         self.factual_comparator = factual_comparator or FactualComparator()
+        connector = create_factual_connector(self.factual_connector_name)
+        self.external_factual_enabled = connector is not None
+        self.external_factual_comparator = external_factual_comparator
+        if self.external_factual_enabled and self.external_factual_comparator is None:
+            assert connector is not None
+            self.external_factual_comparator = ExternalFactualComparator(
+                connector=connector,
+                max_results=self.factual_connector_max_results,
+                timeout_seconds=self.factual_connector_timeout,
+            )
         self.format_comparator = format_comparator or FormatComparator()
         self.rate_limiter_a = AsyncRateLimiter(rate_limit_rps=self.rate_limit_rps)
         self.rate_limiter_b = AsyncRateLimiter(rate_limit_rps=self.rate_limit_rps)
@@ -594,6 +635,8 @@ class BehaviorDiffRunner:
                 "pricing_source": pricing_source,
                 "judge_enabled": self.judge_enabled,
                 "judge_model": self.judge_model,
+                "factual_connector": self.factual_connector_name,
+                "factual_external_summary": self._build_factual_external_summary(diff_results),
                 "significance": significance,
                 "comparator_summary": summarize_comparator_breakdown(report.diff_results),
             }
@@ -651,6 +694,16 @@ class BehaviorDiffRunner:
             "model_b": metadata_b,
             "comparators": aggregation["comparators"],
         }
+        if self.external_factual_enabled and self.external_factual_comparator is not None:
+            external_result, external_metadata = await self.external_factual_comparator.compare(
+                test_case=test_case,
+                response_a=response_a,
+                response_b=response_b,
+                is_semantically_same=is_semantically_same,
+            )
+            diff_metadata["comparators"]["factual_external"] = external_result.to_dict()
+            diff_metadata["factual_external"] = external_metadata
+
         if self.judge_enabled and not is_semantically_same:
             judge_result, judge_metadata = await self._run_judge_for_test_case(
                 test_case=test_case,
@@ -805,6 +858,37 @@ class BehaviorDiffRunner:
 
         return usage
 
+    def _build_factual_external_summary(self, diff_results: Sequence[DiffResult]) -> dict[str, Any]:
+        """Summarize optional external factual comparator decisions across a run."""
+        if not self.external_factual_enabled:
+            return {
+                "enabled": False,
+                "connector": "none",
+                "decision_counts": {},
+                "applied_tests": 0,
+            }
+
+        decisions: Counter[str] = Counter()
+        applied_tests = 0
+        for result in diff_results:
+            comparators = result.metadata.get("comparators", {})
+            if not isinstance(comparators, dict):
+                continue
+            payload = comparators.get("factual_external")
+            if not isinstance(payload, dict):
+                continue
+            decision = str(payload.get("decision", "unknown"))
+            decisions[decision] += 1
+            if bool(payload.get("applies")):
+                applied_tests += 1
+
+        return {
+            "enabled": True,
+            "connector": self.factual_connector_name,
+            "decision_counts": dict(decisions),
+            "applied_tests": applied_tests,
+        }
+
     def _build_significance_metadata(self, diff_results: Sequence[DiffResult]) -> dict[str, Any]:
         """Build run-level significance metadata from regression/improvement outcomes."""
         regressions = [result.is_regression for result in diff_results]
@@ -847,6 +931,7 @@ __all__ = [
     "compute_estimated_cost_usd",
     "build_behavior_report",
     "create_adapter",
+    "create_factual_connector",
     "infer_behavior_category",
     "is_retryable_error",
     "load_test_suite",

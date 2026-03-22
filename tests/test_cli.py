@@ -91,6 +91,9 @@ test_cases:
             model_a: str,
             model_b: str,
             judge_model: str | None = None,
+            factual_connector: str = "none",
+            factual_connector_timeout: float = 8.0,
+            factual_connector_max_results: int = 3,
             max_workers: int = 4,
             continue_on_error: bool = False,
             max_retries: int = 3,
@@ -105,6 +108,9 @@ test_cases:
             captured["rate_limit_rps"] = rate_limit_rps
             captured["pricing_file"] = pricing_file
             captured["judge_model"] = judge_model
+            captured["factual_connector"] = factual_connector
+            captured["factual_connector_timeout"] = factual_connector_timeout
+            captured["factual_connector_max_results"] = factual_connector_max_results
 
         async def run_suite(self, suite_obj):
             return BehaviorReport(
@@ -140,6 +146,12 @@ test_cases:
             "2.5",
             "--judge-model",
             "gpt-4o-mini",
+            "--factual-connector",
+            "wikipedia",
+            "--factual-connector-timeout",
+            "9.5",
+            "--factual-connector-max-results",
+            "5",
         ],
     )
 
@@ -156,6 +168,9 @@ test_cases:
     assert captured["max_retries"] == 5
     assert captured["rate_limit_rps"] == 2.5
     assert captured["judge_model"] == "gpt-4o-mini"
+    assert captured["factual_connector"] == "wikipedia"
+    assert captured["factual_connector_timeout"] == 9.5
+    assert captured["factual_connector_max_results"] == 5
 
 
 def test_run_accepts_prefixed_model_ids(tmp_path: Path, monkeypatch) -> None:
@@ -180,6 +195,9 @@ test_cases:
             model_a: str,
             model_b: str,
             judge_model: str | None = None,
+            factual_connector: str = "none",
+            factual_connector_timeout: float = 8.0,
+            factual_connector_max_results: int = 3,
             max_workers: int = 4,
             continue_on_error: bool = False,
             max_retries: int = 3,
@@ -189,6 +207,9 @@ test_cases:
             captured["model_a"] = model_a
             captured["model_b"] = model_b
             captured["judge_model"] = judge_model
+            captured["factual_connector"] = factual_connector
+            captured["factual_connector_timeout"] = factual_connector_timeout
+            captured["factual_connector_max_results"] = factual_connector_max_results
             del max_workers, continue_on_error, max_retries, rate_limit_rps, pricing_file
 
         async def run_suite(self, suite_obj):
@@ -226,6 +247,7 @@ test_cases:
     assert captured["model_a"] == "litellm:openai/gpt-4o-mini"
     assert captured["model_b"] == "local:llama3.1"
     assert captured["judge_model"] == "litellm:openai/gpt-4o-nano"
+    assert captured["factual_connector"] == "none"
 
 
 def test_compare_prints_delta_and_writes_markdown(tmp_path: Path) -> None:
