@@ -21,7 +21,7 @@ This runbook covers manual distribution and model-upgrade gating workflows.
 | --- | --- | --- |
 | `publish-pypi.yml` | OIDC trusted publishing OR `TEST_PYPI_API_TOKEN` / `PYPI_API_TOKEN` fallback | `id-token: write`, `contents: read` |
 | `docker-image.yml` | `GITHUB_TOKEN` (provided by Actions) | `packages: write`, `contents: read` |
-| `model-upgrade-regression.yml` | `OPENAI_API_KEY` and/or `ANTHROPIC_API_KEY` based on model ids (no extra secret needed for `factual_connector=wikipedia`) | `contents: read` |
+| `model-upgrade-regression.yml` | `OPENAI_API_KEY` and/or `ANTHROPIC_API_KEY` based on model ids; optional `EXPORT_CONNECTOR_API_KEY` for direct report export dispatch (no extra secret needed for `factual_connector=wikipedia`) | `contents: read` |
 
 ## 1) Package Publish (Manual)
 
@@ -85,6 +85,9 @@ Inputs:
 - `factual_connector` (optional, default `none`): `none|wikipedia`
 - `factual_connector_timeout` (optional, default `8`)
 - `factual_connector_max_results` (optional, default `3`)
+- `export_connector` (optional, default `none`): `none|http`
+- `export_connector_endpoint` (optional): required when `export_connector=http`
+- `export_connector_timeout` (optional, default `10`)
 
 Default suite set when `suite_list` is empty:
 
@@ -127,6 +130,8 @@ Artifacts:
   - `<suite>.csv` (metric-focused row export, no raw responses)
   - `<suite>.ndjson` (row-level full payload including responses/metadata)
   - `<suite>.junit.xml` (CI-friendly regression testcase mapping)
+- When `export_connector=http` is enabled, each generated export is also posted
+  to the configured endpoint (`export_connector_endpoint`) via report command dispatch.
 - When external factual connector is enabled, reports include metadata-only
   `factual_external` comparator payloads and run-level `factual_external_summary`.
 

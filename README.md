@@ -43,6 +43,7 @@ Ad-hoc prompt checks miss these patterns and are hard to reproduce in CI.
 - Single-suite run command with retry/rate-limit/cost controls
 - JSON report artifacts for CI and governance workflows
 - Report rendering in `table`, `json`, `markdown`, `csv`, `ndjson`, `junit`, and interactive self-contained `html`
+- Optional direct export connector for rendered reports (`--export-connector http`)
 - Run-to-run compare command with delta metrics
 - Policy gate command for deterministic release decisions (`strict|balanced|permissive`)
 
@@ -64,6 +65,7 @@ export ANTHROPIC_API_KEY=sk-ant-...
 export LLM_DIFF_LOCAL_BASE_URL=http://localhost:11434/v1
 # optional:
 # export LLM_DIFF_LOCAL_API_KEY=local-api-key
+# export LLM_DIFF_EXPORT_API_KEY=export-api-key
 ```
 
 ### 2) Create a suite
@@ -121,6 +123,8 @@ llm-diff report run_report.json --format html -o run_report.html
 llm-diff report run_report.json --format csv -o run_report.csv
 llm-diff report run_report.json --format ndjson -o run_report.ndjson
 llm-diff report run_report.json --format junit -o run_report.junit.xml
+llm-diff report run_report.json --format csv -o run_report.csv \
+  --export-connector http --export-endpoint https://example.com/ingest
 ```
 
 ### 6) Compare two runs
@@ -226,6 +230,7 @@ Core flags:
 ### `llm-diff report`
 
 Render one run report as `table | json | html | markdown | csv | ndjson | junit`.
+Optional direct export connector: `--export-connector http --export-endpoint ...`.
 
 ### `llm-diff compare`
 
@@ -284,6 +289,7 @@ Implemented now:
 - bootstrap delta CI + permutation p-value (compare rows)
 - risk-tier gate policies (CLI + model-upgrade workflow)
 - enterprise-ready report export artifacts (`csv`, `ndjson`, `junit`)
+- optional direct export connector (`http`, opt-in from `report` command and workflow)
 - suite templates and CI distribution workflows
 
 Committed roadmap status:
@@ -292,7 +298,7 @@ Committed roadmap status:
 
 Future exploration candidates (not committed yet):
 
-- direct external export connectors (for example S3/data warehouse sinks)
+- provider-specific external sinks (for example S3 or warehouse-native connectors)
 
 ## Contributing
 

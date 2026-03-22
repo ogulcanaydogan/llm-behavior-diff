@@ -78,6 +78,8 @@ llm-diff report report.json --format html -o report.html
 llm-diff report report.json --format csv -o report.csv
 llm-diff report report.json --format ndjson -o report.ndjson
 llm-diff report report.json --format junit -o report.junit.xml
+llm-diff report report.json --format csv -o report.csv \
+  --export-connector http --export-endpoint https://example.com/ingest
 ```
 
 Options:
@@ -85,6 +87,10 @@ Options:
 - `report_file` (required): JSON report path
 - `--format`: `table` (default), `json`, `html`, `markdown`, `csv`, `ndjson`, `junit`
 - `--output`, `-o`: output file path (stdout when omitted)
+- `--export-connector`: `none` (default) or `http`
+- `--export-endpoint`: required when `--export-connector=http`
+- `--export-timeout`: connector timeout seconds (default `10.0`)
+- `--export-api-key`: optional explicit API key (fallback: `LLM_DIFF_EXPORT_API_KEY`)
 
 `report` table/markdown output includes run-level bootstrap + Wilson confidence intervals when
 `metadata.significance` is present.
@@ -97,6 +103,8 @@ Export format behavior:
 - `csv`: one row per `diff_result`, metric-focused columns, no raw model responses.
 - `ndjson`: one JSON object per `diff_result`, includes run context + comparator metadata + raw responses.
 - `junit`: one `<testcase>` per `diff_result`; `is_regression=true` maps to `<failure>`, others pass with status in `system-out`.
+- direct connector dispatch is opt-in and currently supports `http` only.
+- connector dispatch requires non-`table` formats.
 
 ## `llm-diff compare`
 

@@ -836,6 +836,150 @@ def test_report_csv_ndjson_and_junit_empty_diff_results(tmp_path: Path) -> None:
     assert junit_root.find("testcase") is None
 
 
+def test_report_http_export_connector_success(tmp_path: Path, monkeypatch) -> None:
+    report_path = tmp_path / "report_http_export.json"
+    csv_path = tmp_path / "report_http_export.csv"
+    captured: dict[str, object] = {}
+
+    report = BehaviorReport(
+        model_a="gpt-4o",
+        model_b="gpt-4.5",
+        suite_name="suite_http_export",
+        total_tests=1,
+        total_diffs=1,
+        regressions=1,
+        improvements=0,
+        duration_seconds=0.4,
+        diff_results=[
+            DiffResult(
+                test_id="http_001",
+                model_a="gpt-4o",
+                model_b="gpt-4.5",
+                response_a="a",
+                response_b="b",
+                is_semantically_same=False,
+                semantic_similarity=0.11,
+                behavior_category=BehaviorCategory.FORMAT_CHANGE,
+                is_regression=True,
+                is_improvement=False,
+                confidence=0.8,
+                explanation="regression",
+            )
+        ],
+    )
+    report_path.write_text(json.dumps(report.model_dump(mode="json"), indent=2), encoding="utf-8")
+
+    class DummyResponse:
+        def raise_for_status(self) -> None:
+            return None
+
+    def fake_post(url: str, json: dict, headers: dict, timeout: float):
+        captured["url"] = url
+        captured["payload"] = json
+        captured["headers"] = headers
+        captured["timeout"] = timeout
+        return DummyResponse()
+
+    monkeypatch.setattr("llm_behavior_diff.cli.httpx.post", fake_post)
+
+    result = CliRunner().invoke(
+        main,
+        [
+            "report",
+            str(report_path),
+            "--format",
+            "csv",
+            "--output",
+            str(csv_path),
+            "--export-connector",
+            "http",
+            "--export-endpoint",
+            "https://example.com/hooks/llm-diff",
+            "--export-timeout",
+            "6",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert "External export delivered" in result.output
+    assert captured["url"] == "https://example.com/hooks/llm-diff"
+    assert captured["timeout"] == 6.0
+    headers = captured["headers"]
+    assert isinstance(headers, dict)
+    assert headers.get("User-Agent") == "llm-behavior-diff/0.1 report-export"
+    payload = captured["payload"]
+    assert isinstance(payload, dict)
+    assert payload["report"]["suite_name"] == "suite_http_export"
+    assert payload["export"]["format"] == "csv"
+    assert payload["export"]["content_type"] == "text/csv"
+    assert "test_id" in payload["export"]["content"]
+
+
+def test_report_http_export_connector_requires_endpoint(tmp_path: Path) -> None:
+    report_path = tmp_path / "report_http_export_missing_endpoint.json"
+    csv_path = tmp_path / "report_http_export_missing_endpoint.csv"
+    report = BehaviorReport(
+        model_a="gpt-4o",
+        model_b="gpt-4.5",
+        suite_name="suite_http_export",
+        total_tests=0,
+        total_diffs=0,
+        regressions=0,
+        improvements=0,
+        duration_seconds=0.0,
+    )
+    report_path.write_text(json.dumps(report.model_dump(mode="json"), indent=2), encoding="utf-8")
+
+    result = CliRunner().invoke(
+        main,
+        [
+            "report",
+            str(report_path),
+            "--format",
+            "csv",
+            "--output",
+            str(csv_path),
+            "--export-connector",
+            "http",
+        ],
+    )
+
+    assert result.exit_code == 1
+    assert "export_endpoint is required" in result.output
+
+
+def test_report_export_connector_rejects_table_format(tmp_path: Path) -> None:
+    report_path = tmp_path / "report_table_export.json"
+    report = BehaviorReport(
+        model_a="gpt-4o",
+        model_b="gpt-4.5",
+        suite_name="suite_table_export",
+        total_tests=0,
+        total_diffs=0,
+        regressions=0,
+        improvements=0,
+        duration_seconds=0.0,
+    )
+    report_path.write_text(json.dumps(report.model_dump(mode="json"), indent=2), encoding="utf-8")
+
+    result = CliRunner().invoke(
+        main,
+        [
+            "report",
+            str(report_path),
+            "--format",
+            "table",
+            "--export-connector",
+            "http",
+            "--export-endpoint",
+            "https://example.com/hook",
+        ],
+    )
+
+    assert result.exit_code == 1
+    assert "requires non-table report format output" in result.output
+
+
 def test_compare_includes_significance_rows_when_diff_results_available(tmp_path: Path) -> None:
     report_a_path = tmp_path / "sig_a.json"
     report_b_path = tmp_path / "sig_b.json"
