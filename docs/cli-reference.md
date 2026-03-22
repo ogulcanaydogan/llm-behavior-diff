@@ -3,7 +3,7 @@
 `llm-diff` provides four commands:
 
 - `run`: execute a suite against two models and write a JSON report
-- `report`: render one JSON report in table/json/html/markdown
+- `report`: render one JSON report in table/json/html/markdown/csv/ndjson/junit
 - `compare`: compare two JSON reports and show metric deltas
 - `gate`: evaluate one report against deterministic risk-tier policy templates
 
@@ -75,12 +75,15 @@ Render a single run report.
 llm-diff report report.json --format table
 llm-diff report report.json --format markdown -o report.md
 llm-diff report report.json --format html -o report.html
+llm-diff report report.json --format csv -o report.csv
+llm-diff report report.json --format ndjson -o report.ndjson
+llm-diff report report.json --format junit -o report.junit.xml
 ```
 
 Options:
 
 - `report_file` (required): JSON report path
-- `--format`: `table` (default), `json`, `html`, `markdown`
+- `--format`: `table` (default), `json`, `html`, `markdown`, `csv`, `ndjson`, `junit`
 - `--output`, `-o`: output file path (stdout when omitted)
 
 `report` table/markdown output includes run-level bootstrap + Wilson confidence intervals when
@@ -88,6 +91,12 @@ Options:
 
 `report --format html` generates a self-contained interactive explorer (no external JS/CSS/CDN),
 including KPI cards, category breakdown, filterable/sortable diff table, and expandable row details.
+
+Export format behavior:
+
+- `csv`: one row per `diff_result`, metric-focused columns, no raw model responses.
+- `ndjson`: one JSON object per `diff_result`, includes run context + comparator metadata + raw responses.
+- `junit`: one `<testcase>` per `diff_result`; `is_regression=true` maps to `<failure>`, others pass with status in `system-out`.
 
 ## `llm-diff compare`
 

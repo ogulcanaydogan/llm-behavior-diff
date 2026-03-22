@@ -17,7 +17,7 @@
 - Run deterministic behavior comparisons (`semantic`, `factual`, `format`, `behavioral`)
 - Aggregate regressions/improvements with a fixed precedence policy
 - Track token usage and estimated cost metadata
-- Generate table/json/html/markdown reports
+- Generate table/json/html/markdown/csv/ndjson/junit reports
 - Enforce upgrade gates in CI using built-in suites
 
 ## Fast Example

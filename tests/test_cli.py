@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import csv
+import io
 import json
+import xml.etree.ElementTree as ET
 from pathlib import Path
 
 from click.testing import CliRunner
@@ -700,6 +703,137 @@ def test_report_html_handles_empty_diff_rows_and_missing_metadata(tmp_path: Path
     assert "No diff rows for this report." in html_content
     assert ">N/A<" in html_content
     assert 'data-test="diff-explorer-table"' in html_content
+
+
+def test_report_csv_ndjson_and_junit_exports(tmp_path: Path) -> None:
+    report_path = tmp_path / "export_report.json"
+    csv_path = tmp_path / "report.csv"
+    ndjson_path = tmp_path / "report.ndjson"
+    junit_path = tmp_path / "report.junit.xml"
+
+    diff_result = DiffResult(
+        test_id="export_001",
+        model_a="gpt-4o",
+        model_b="gpt-4.5",
+        response_a="Response A body should only appear in ndjson.",
+        response_b="Response B body should only appear in ndjson.",
+        is_semantically_same=False,
+        semantic_similarity=0.22,
+        behavior_category=BehaviorCategory.FORMAT_CHANGE,
+        is_regression=True,
+        is_improvement=False,
+        confidence=0.91,
+        explanation="Candidate failed strict formatting output.",
+        metadata={"comparators": {"format": {"decision": "format_regression"}}},
+    )
+    report = BehaviorReport(
+        model_a="gpt-4o",
+        model_b="gpt-4.5",
+        suite_name="suite_exports",
+        total_tests=1,
+        total_diffs=1,
+        regressions=1,
+        improvements=0,
+        duration_seconds=0.7,
+        diff_results=[diff_result],
+    )
+    report_path.write_text(json.dumps(report.model_dump(mode="json"), indent=2), encoding="utf-8")
+
+    csv_result = CliRunner().invoke(
+        main,
+        ["report", str(report_path), "--format", "csv", "--output", str(csv_path)],
+    )
+    assert csv_result.exit_code == 0
+    csv_content = csv_path.read_text(encoding="utf-8")
+    csv_rows = list(csv.DictReader(io.StringIO(csv_content)))
+    assert len(csv_rows) == 1
+    assert csv_rows[0]["test_id"] == "export_001"
+    assert csv_rows[0]["status"] == "regression"
+    assert "response_a" not in csv_rows[0]
+    assert "response_b" not in csv_rows[0]
+    assert "Response A body should only appear in ndjson." not in csv_content
+
+    ndjson_result = CliRunner().invoke(
+        main,
+        ["report", str(report_path), "--format", "ndjson", "--output", str(ndjson_path)],
+    )
+    assert ndjson_result.exit_code == 0
+    ndjson_lines = [
+        line for line in ndjson_path.read_text(encoding="utf-8").splitlines() if line.strip()
+    ]
+    assert len(ndjson_lines) == 1
+    ndjson_row = json.loads(ndjson_lines[0])
+    assert ndjson_row["test_id"] == "export_001"
+    assert ndjson_row["status"] == "regression"
+    assert ndjson_row["response_a"] == "Response A body should only appear in ndjson."
+    assert ndjson_row["response_b"] == "Response B body should only appear in ndjson."
+    assert "metadata" in ndjson_row
+
+    junit_result = CliRunner().invoke(
+        main,
+        ["report", str(report_path), "--format", "junit", "--output", str(junit_path)],
+    )
+    assert junit_result.exit_code == 0
+    junit_content = junit_path.read_text(encoding="utf-8")
+    junit_root = ET.fromstring(junit_content)
+    assert junit_root.tag == "testsuite"
+    assert junit_root.attrib["tests"] == "1"
+    assert junit_root.attrib["failures"] == "1"
+    testcase = junit_root.find("testcase")
+    assert testcase is not None
+    failure = testcase.find("failure")
+    assert failure is not None
+    system_out = testcase.find("system-out")
+    assert system_out is not None
+    assert "status=regression" in (system_out.text or "")
+    assert "Response A body should only appear in ndjson." not in junit_content
+    assert "Response B body should only appear in ndjson." not in junit_content
+
+
+def test_report_csv_ndjson_and_junit_empty_diff_results(tmp_path: Path) -> None:
+    report_path = tmp_path / "empty_export_report.json"
+    csv_path = tmp_path / "empty_report.csv"
+    ndjson_path = tmp_path / "empty_report.ndjson"
+    junit_path = tmp_path / "empty_report.junit.xml"
+
+    report = BehaviorReport(
+        model_a="gpt-4o",
+        model_b="gpt-4.5",
+        suite_name="suite_empty",
+        total_tests=0,
+        total_diffs=0,
+        regressions=0,
+        improvements=0,
+        duration_seconds=0.0,
+        diff_results=[],
+        metadata={},
+    )
+    report_path.write_text(json.dumps(report.model_dump(mode="json"), indent=2), encoding="utf-8")
+
+    csv_result = CliRunner().invoke(
+        main,
+        ["report", str(report_path), "--format", "csv", "--output", str(csv_path)],
+    )
+    assert csv_result.exit_code == 0
+    csv_rows = list(csv.DictReader(io.StringIO(csv_path.read_text(encoding="utf-8"))))
+    assert csv_rows == []
+
+    ndjson_result = CliRunner().invoke(
+        main,
+        ["report", str(report_path), "--format", "ndjson", "--output", str(ndjson_path)],
+    )
+    assert ndjson_result.exit_code == 0
+    assert ndjson_path.read_text(encoding="utf-8") == ""
+
+    junit_result = CliRunner().invoke(
+        main,
+        ["report", str(report_path), "--format", "junit", "--output", str(junit_path)],
+    )
+    assert junit_result.exit_code == 0
+    junit_root = ET.fromstring(junit_path.read_text(encoding="utf-8"))
+    assert junit_root.attrib["tests"] == "0"
+    assert junit_root.attrib["failures"] == "0"
+    assert junit_root.find("testcase") is None
 
 
 def test_compare_includes_significance_rows_when_diff_results_available(tmp_path: Path) -> None:

@@ -123,6 +123,10 @@ Pack intent:
 Artifacts:
 
 - Per-suite JSON reports are uploaded for audit/debug.
+- Per-suite export artifacts are also uploaded:
+  - `<suite>.csv` (metric-focused row export, no raw responses)
+  - `<suite>.ndjson` (row-level full payload including responses/metadata)
+  - `<suite>.junit.xml` (CI-friendly regression testcase mapping)
 - When external factual connector is enabled, reports include metadata-only
   `factual_external` comparator payloads and run-level `factual_external_summary`.
 

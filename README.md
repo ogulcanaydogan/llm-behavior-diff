@@ -42,7 +42,7 @@ Ad-hoc prompt checks miss these patterns and are hard to reproduce in CI.
 - Optional external factual validation (`--factual-connector wikipedia`, metadata-only)
 - Single-suite run command with retry/rate-limit/cost controls
 - JSON report artifacts for CI and governance workflows
-- Report rendering in `table`, `json`, `markdown`, and interactive self-contained `html`
+- Report rendering in `table`, `json`, `markdown`, `csv`, `ndjson`, `junit`, and interactive self-contained `html`
 - Run-to-run compare command with delta metrics
 - Policy gate command for deterministic release decisions (`strict|balanced|permissive`)
 
@@ -118,6 +118,9 @@ llm-diff run \
 ```bash
 llm-diff report run_report.json --format table
 llm-diff report run_report.json --format html -o run_report.html
+llm-diff report run_report.json --format csv -o run_report.csv
+llm-diff report run_report.json --format ndjson -o run_report.ndjson
+llm-diff report run_report.json --format junit -o run_report.junit.xml
 ```
 
 ### 6) Compare two runs
@@ -222,7 +225,7 @@ Core flags:
 
 ### `llm-diff report`
 
-Render one run report as `table | json | html | markdown`.
+Render one run report as `table | json | html | markdown | csv | ndjson | junit`.
 
 ### `llm-diff compare`
 
@@ -244,7 +247,7 @@ Evaluate one run report with deterministic policy tiers:
 - `release-check.yml`: build/twine/wheel smoke checks
 - `publish-pypi.yml`: manual TestPyPI/PyPI publish flow
 - `docker-image.yml`: PR/master build+smoke, optional manual GHCR push
-- `model-upgrade-regression.yml`: manual/reusable regression gate (`gate_policy`, `gate_policy_pack`, optional `gate_policy_file`; optional factual connector inputs; default `strict + core`)
+- `model-upgrade-regression.yml`: manual/reusable regression gate (`gate_policy`, `gate_policy_pack`, optional `gate_policy_file`; optional factual connector inputs; default `strict + core`) + per-suite export artifacts (`csv`, `ndjson`, `junit`)
 - Node24 deprecation closure: workflows keep `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24=true` and now run on Node24-ready major action pins.
 - Workflow security hardening: all third-party actions are pinned to full commit SHAs; Dependabot auto-updates `github-actions` minor/patch versions weekly, while major bumps are handled in planned maintenance windows.
 
@@ -280,6 +283,7 @@ Implemented now:
 - bootstrap + Wilson confidence intervals (run metadata)
 - bootstrap delta CI + permutation p-value (compare rows)
 - risk-tier gate policies (CLI + model-upgrade workflow)
+- enterprise-ready report export artifacts (`csv`, `ndjson`, `junit`)
 - suite templates and CI distribution workflows
 
 Committed roadmap status:
@@ -288,7 +292,7 @@ Committed roadmap status:
 
 Future exploration candidates (not committed yet):
 
-- broader enterprise reporting/export integrations
+- direct external export connectors (for example S3/data warehouse sinks)
 
 ## Contributing
 

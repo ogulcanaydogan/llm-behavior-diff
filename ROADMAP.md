@@ -100,6 +100,11 @@ The `git diff` for LLM behavior. When you upgrade a model version, know exactly 
 - [x] Custom YAML policy hook (`version: v1`) with strict validation
 - [x] CLI + model-upgrade workflow parity for pack/file policy resolution
 
+## Phase 11: Enterprise Reporting / Export Integrations (Completed)
+- [x] Artifact-first enterprise export formats in `report` command (`csv`, `ndjson`, `junit`)
+- [x] Model-upgrade workflow parity: per-suite JSON + export artifacts upload
+- [x] Docs truth-sync for export behavior and artifact contracts
+
 ## Current Status
 No open committed roadmap items at this time. Future work will be tracked as new phases when prioritized.
 

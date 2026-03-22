@@ -64,7 +64,10 @@
 ## Reports
 
 - Primary output is JSON from `run`.
-- `report` renders table/json/html/markdown views (table/markdown include run-level bootstrap + Wilson CI when available).
+- `report` renders table/json/html/markdown/csv/ndjson/junit views.
+  - `csv` and `junit` stay metric/status focused and do not include raw responses.
+  - `ndjson` includes raw responses and comparator metadata per diff row.
+  - table/markdown include run-level bootstrap + Wilson CI when available.
 - `compare` renders run-to-run metric deltas and optional markdown output.
 - `compare` also computes bootstrap delta CI + permutation p-value from per-test outcomes when both reports include `diff_results`.
 - `gate` evaluates one JSON report with selected tier + pack/file policy and returns CI-friendly exit codes.

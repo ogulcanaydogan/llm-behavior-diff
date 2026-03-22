@@ -6,7 +6,10 @@ generating reports, and comparing model versions.
 """
 
 import asyncio
+import csv
+import io
 import json
+import xml.etree.ElementTree as ET
 from html import escape as html_escape
 from pathlib import Path
 from typing import Any, Optional
@@ -199,7 +202,7 @@ def run(
 @click.argument("report_file", type=click.Path(exists=True))
 @click.option(
     "--format",
-    type=click.Choice(["json", "html", "markdown", "table"]),
+    type=click.Choice(["json", "html", "markdown", "table", "csv", "ndjson", "junit"]),
     default="table",
     help="Output format",
 )
@@ -234,6 +237,15 @@ def report(report_file: str, format: str, output: Optional[str]) -> None:
         _output(content, output)
     elif format == "html":
         content = _format_html(report_obj)
+        _output(content, output)
+    elif format == "csv":
+        content = _format_csv(report_obj)
+        _output(content, output)
+    elif format == "ndjson":
+        content = _format_ndjson(report_obj)
+        _output(content, output)
+    elif format == "junit":
+        content = _format_junit(report_obj)
         _output(content, output)
 
 
@@ -586,6 +598,155 @@ def _format_gate_text(report_file: str, report: BehaviorReport, evaluation: dict
             lines.append(f"- {reason}")
 
     return "\n".join(lines) + "\n"
+
+
+def _behavior_category_value(raw_category: Any) -> str:
+    if hasattr(raw_category, "value"):
+        return str(raw_category.value)
+    return str(raw_category)
+
+
+def _diff_status(result: Any) -> str:
+    if bool(result.is_regression):
+        return "regression"
+    if bool(result.is_improvement):
+        return "improvement"
+    if bool(result.is_semantically_same) and result.response_a.strip() != result.response_b.strip():
+        return "semantic-only"
+    if (
+        not bool(result.is_semantically_same)
+        and not bool(result.is_regression)
+        and not bool(result.is_improvement)
+    ):
+        return "unknown"
+    return "other"
+
+
+def _format_csv(report: BehaviorReport) -> str:
+    """Format report diff rows as CSV (metric-focused, no raw responses)."""
+    fieldnames = [
+        "report_id",
+        "suite_name",
+        "model_a",
+        "model_b",
+        "test_id",
+        "behavior_category",
+        "status",
+        "is_semantically_same",
+        "semantic_similarity",
+        "is_regression",
+        "is_improvement",
+        "confidence",
+        "explanation",
+    ]
+    buffer = io.StringIO(newline="")
+    writer = csv.DictWriter(buffer, fieldnames=fieldnames)
+    writer.writeheader()
+
+    for result in report.diff_results:
+        writer.writerow(
+            {
+                "report_id": report.id,
+                "suite_name": report.suite_name,
+                "model_a": report.model_a,
+                "model_b": report.model_b,
+                "test_id": result.test_id,
+                "behavior_category": _behavior_category_value(result.behavior_category),
+                "status": _diff_status(result),
+                "is_semantically_same": bool(result.is_semantically_same),
+                "semantic_similarity": float(result.semantic_similarity),
+                "is_regression": bool(result.is_regression),
+                "is_improvement": bool(result.is_improvement),
+                "confidence": float(result.confidence),
+                "explanation": result.explanation,
+            }
+        )
+
+    return buffer.getvalue()
+
+
+def _format_ndjson(report: BehaviorReport) -> str:
+    """Format report diff rows as NDJSON including raw responses and comparator metadata."""
+    lines: list[str] = []
+    for result in report.diff_results:
+        payload = {
+            "report_id": report.id,
+            "suite_name": report.suite_name,
+            "model_a": report.model_a,
+            "model_b": report.model_b,
+            "test_id": result.test_id,
+            "behavior_category": _behavior_category_value(result.behavior_category),
+            "status": _diff_status(result),
+            "is_semantically_same": bool(result.is_semantically_same),
+            "semantic_similarity": float(result.semantic_similarity),
+            "is_regression": bool(result.is_regression),
+            "is_improvement": bool(result.is_improvement),
+            "confidence": float(result.confidence),
+            "explanation": result.explanation,
+            "response_a": result.response_a,
+            "response_b": result.response_b,
+            "metadata": result.metadata,
+        }
+        lines.append(json.dumps(payload, ensure_ascii=False, default=str))
+    return ("\n".join(lines) + "\n") if lines else ""
+
+
+def _format_junit(report: BehaviorReport) -> str:
+    """Format report diff rows as JUnit XML."""
+    testsuite = ET.Element(
+        "testsuite",
+        attrib={
+            "name": report.suite_name,
+            "tests": str(len(report.diff_results)),
+            "failures": str(sum(1 for result in report.diff_results if result.is_regression)),
+            "errors": "0",
+            "skipped": "0",
+        },
+    )
+
+    properties = ET.SubElement(testsuite, "properties")
+    ET.SubElement(properties, "property", name="report_id", value=str(report.id))
+    ET.SubElement(properties, "property", name="model_a", value=report.model_a)
+    ET.SubElement(properties, "property", name="model_b", value=report.model_b)
+    ET.SubElement(properties, "property", name="total_tests", value=str(report.total_tests))
+    ET.SubElement(properties, "property", name="total_diffs", value=str(report.total_diffs))
+    ET.SubElement(properties, "property", name="regressions", value=str(report.regressions))
+    ET.SubElement(properties, "property", name="improvements", value=str(report.improvements))
+
+    for result in report.diff_results:
+        status = _diff_status(result)
+        testcase = ET.SubElement(
+            testsuite,
+            "testcase",
+            attrib={
+                "classname": report.suite_name,
+                "name": result.test_id,
+            },
+        )
+        if bool(result.is_regression):
+            failure = ET.SubElement(
+                testcase,
+                "failure",
+                attrib={
+                    "message": "Regression detected",
+                    "type": _behavior_category_value(result.behavior_category),
+                },
+            )
+            failure.text = result.explanation or "Regression detected by deterministic comparator."
+
+        system_out = ET.SubElement(testcase, "system-out")
+        system_out.text = (
+            f"status={status}; category={_behavior_category_value(result.behavior_category)}; "
+            f"semantic_similarity={float(result.semantic_similarity):.4f}; "
+            f"confidence={float(result.confidence):.4f}; "
+            f"is_regression={bool(result.is_regression)}; "
+            f"is_improvement={bool(result.is_improvement)}"
+        )
+
+    xml_payload = ET.tostring(testsuite, encoding="utf-8", xml_declaration=True)
+    if isinstance(xml_payload, bytes):
+        return xml_payload.decode("utf-8")
+    return str(xml_payload)
 
 
 def _format_markdown(report: BehaviorReport) -> str:
