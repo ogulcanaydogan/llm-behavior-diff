@@ -110,8 +110,10 @@ def test_model_upgrade_workflow_has_factual_connector_inputs_and_export_wiring()
 
     dispatch_inputs = on_section["workflow_dispatch"]["inputs"]
     call_inputs = on_section["workflow_call"]["inputs"]
+    call_secrets = on_section["workflow_call"]["secrets"]
     assert isinstance(dispatch_inputs, dict)
     assert isinstance(call_inputs, dict)
+    assert isinstance(call_secrets, dict)
     _assert_input_shape(dispatch_inputs, "workflow_dispatch")
     _assert_input_shape(call_inputs, "workflow_call")
 
@@ -124,12 +126,21 @@ def test_model_upgrade_workflow_has_factual_connector_inputs_and_export_wiring()
     options = export_connector.get("options")
     assert isinstance(options, list)
     assert "gcs" in options
+    assert "redshift" in options
 
     job_env = workflow["jobs"]["regression-gate"]["env"]
     assert isinstance(job_env, dict)
     assert job_env.get("EXPORT_GCS_BUCKET") == "${{ vars.EXPORT_GCS_BUCKET }}"
     assert job_env.get("EXPORT_GCS_PREFIX") == "${{ vars.EXPORT_GCS_PREFIX }}"
     assert job_env.get("EXPORT_GCS_PROJECT") == "${{ vars.EXPORT_GCS_PROJECT }}"
+    assert job_env.get("EXPORT_RS_HOST") == "${{ vars.EXPORT_RS_HOST }}"
+    assert job_env.get("EXPORT_RS_PORT") == "${{ vars.EXPORT_RS_PORT }}"
+    assert job_env.get("EXPORT_RS_DATABASE") == "${{ vars.EXPORT_RS_DATABASE }}"
+    assert job_env.get("EXPORT_RS_USER") == "${{ vars.EXPORT_RS_USER }}"
+    assert job_env.get("EXPORT_RS_SCHEMA") == "${{ vars.EXPORT_RS_SCHEMA }}"
+    assert job_env.get("EXPORT_RS_TABLE") == "${{ vars.EXPORT_RS_TABLE }}"
+    assert job_env.get("EXPORT_RS_SSLMODE") == "${{ vars.EXPORT_RS_SSLMODE }}"
+    assert job_env.get("LLM_DIFF_EXPORT_RS_PASSWORD") == "${{ secrets.REDSHIFT_PASSWORD }}"
 
     steps = workflow["jobs"]["regression-gate"]["steps"]
     assert isinstance(steps, list)
@@ -172,13 +183,27 @@ def test_model_upgrade_workflow_has_factual_connector_inputs_and_export_wiring()
     assert '--export-sf-database "$EXPORT_SF_DATABASE"' in run_script
     assert '--export-sf-schema "$EXPORT_SF_SCHEMA"' in run_script
     assert '--export-sf-table "$EXPORT_SF_TABLE"' in run_script
+    assert '--export-rs-host "$EXPORT_RS_HOST"' in run_script
+    assert '--export-rs-port "${EXPORT_RS_PORT:-5439}"' in run_script
+    assert '--export-rs-database "$EXPORT_RS_DATABASE"' in run_script
+    assert '--export-rs-user "$EXPORT_RS_USER"' in run_script
+    assert '--export-rs-schema "$EXPORT_RS_SCHEMA"' in run_script
+    assert '--export-rs-table "$EXPORT_RS_TABLE"' in run_script
+    assert '--export-rs-sslmode "${EXPORT_RS_SSLMODE:-require}"' in run_script
     assert "SNOWFLAKE_PASSWORD secret is required when export_connector=snowflake." in run_script
+    assert "REDSHIFT_PASSWORD secret is required when export_connector=redshift." in run_script
     assert (
         "EXPORT_GCS_BUCKET repository variable is required when export_connector=gcs." in run_script
+    )
+    assert (
+        "EXPORT_RS_HOST repository variable is required when export_connector=redshift."
+        in run_script
     )
     assert 'elif [ "$EXPORT_CONNECTOR" = "gcs" ]; then' in run_script
     assert 'elif [ "$EXPORT_CONNECTOR" = "bigquery" ]; then' in run_script
     assert 'elif [ "$EXPORT_CONNECTOR" = "snowflake" ]; then' in run_script
+    assert 'elif [ "$EXPORT_CONNECTOR" = "redshift" ]; then' in run_script
+    assert "REDSHIFT_PASSWORD" in call_secrets
 
     export_step = next(
         step

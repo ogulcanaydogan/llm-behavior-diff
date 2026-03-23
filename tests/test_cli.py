@@ -1638,6 +1638,259 @@ def test_report_snowflake_export_connector_rejects_non_ndjson_format(tmp_path: P
     assert "supports only --format ndjson" in result.output
 
 
+def test_report_redshift_export_connector_success_with_env_password(
+    tmp_path: Path, monkeypatch
+) -> None:
+    report_path = tmp_path / "report_redshift_export.json"
+    ndjson_path = tmp_path / "report_redshift_export.ndjson"
+    captured: dict[str, object] = {}
+
+    report = BehaviorReport(
+        model_a="gpt-4o",
+        model_b="gpt-4.5",
+        suite_name="suite_redshift_export",
+        total_tests=1,
+        total_diffs=1,
+        regressions=0,
+        improvements=1,
+        duration_seconds=0.4,
+        diff_results=[
+            DiffResult(
+                test_id="rs_001",
+                model_a="gpt-4o",
+                model_b="gpt-4.5",
+                response_a="a",
+                response_b="b",
+                is_semantically_same=False,
+                semantic_similarity=0.11,
+                behavior_category=BehaviorCategory.KNOWLEDGE_CHANGE,
+                is_regression=False,
+                is_improvement=True,
+                confidence=0.8,
+                explanation="improvement",
+                metadata={"comparator": "behavioral"},
+            )
+        ],
+    )
+    report_path.write_text(json.dumps(report.model_dump(mode="json"), indent=2), encoding="utf-8")
+
+    class FakeCursor:
+        def executemany(self, query: str, rows: list[dict[str, object]]) -> None:
+            captured["query"] = query
+            captured["rows"] = rows
+
+        def close(self) -> None:
+            captured["cursor_closed"] = True
+
+    class FakeConnection:
+        def cursor(self) -> FakeCursor:
+            captured["cursor_opened"] = True
+            return FakeCursor()
+
+        def commit(self) -> None:
+            captured["committed"] = True
+
+        def close(self) -> None:
+            captured["connection_closed"] = True
+
+    def fake_create_redshift_connection(**kwargs):
+        captured["connect_kwargs"] = kwargs
+        return FakeConnection()
+
+    monkeypatch.setenv("LLM_DIFF_EXPORT_RS_PASSWORD", "rs-secret")
+    monkeypatch.setattr(
+        "llm_behavior_diff.cli._create_redshift_connection", fake_create_redshift_connection
+    )
+
+    result = CliRunner().invoke(
+        main,
+        [
+            "report",
+            str(report_path),
+            "--format",
+            "ndjson",
+            "--output",
+            str(ndjson_path),
+            "--export-connector",
+            "redshift",
+            "--export-rs-host",
+            "redshift-cluster.example.amazonaws.com",
+            "--export-rs-port",
+            "5439",
+            "--export-rs-database",
+            "analytics",
+            "--export-rs-user",
+            "svc_llm_diff",
+            "--export-rs-schema",
+            "llm_diff",
+            "--export-rs-table",
+            "diff_rows",
+            "--export-rs-sslmode",
+            "require",
+            "--export-timeout",
+            "6",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert "External export delivered" in result.output
+
+    connect_kwargs = captured["connect_kwargs"]
+    assert isinstance(connect_kwargs, dict)
+    assert connect_kwargs["host"] == "redshift-cluster.example.amazonaws.com"
+    assert connect_kwargs["port"] == 5439
+    assert connect_kwargs["database"] == "analytics"
+    assert connect_kwargs["user"] == "svc_llm_diff"
+    assert connect_kwargs["password"] == "rs-secret"
+    assert connect_kwargs["sslmode"] == "require"
+    assert connect_kwargs["timeout_seconds"] == 6.0
+
+    query = captured["query"]
+    assert isinstance(query, str)
+    assert 'INSERT INTO "llm_diff"."diff_rows"' in query
+    rows = captured["rows"]
+    assert isinstance(rows, list)
+    assert len(rows) == 1
+    assert rows[0]["test_id"] == "rs_001"
+    assert rows[0]["metadata_json"] == '{"comparator": "behavioral"}'
+    assert captured["committed"] is True
+    assert captured["cursor_closed"] is True
+    assert captured["connection_closed"] is True
+
+
+def test_report_redshift_export_connector_requires_fields(tmp_path: Path) -> None:
+    report_path = tmp_path / "report_redshift_export_missing_fields.json"
+    ndjson_path = tmp_path / "report_redshift_export_missing_fields.ndjson"
+    report = BehaviorReport(
+        model_a="gpt-4o",
+        model_b="gpt-4.5",
+        suite_name="suite_redshift_export",
+        total_tests=0,
+        total_diffs=0,
+        regressions=0,
+        improvements=0,
+        duration_seconds=0.0,
+    )
+    report_path.write_text(json.dumps(report.model_dump(mode="json"), indent=2), encoding="utf-8")
+
+    base_args = [
+        "report",
+        str(report_path),
+        "--format",
+        "ndjson",
+        "--output",
+        str(ndjson_path),
+        "--export-connector",
+        "redshift",
+    ]
+
+    missing_host = CliRunner().invoke(
+        main,
+        [
+            *base_args,
+            "--export-rs-database",
+            "analytics",
+            "--export-rs-user",
+            "svc_llm_diff",
+            "--export-rs-schema",
+            "llm_diff",
+            "--export-rs-table",
+            "diff_rows",
+            "--export-rs-password",
+            "rs-secret",
+        ],
+    )
+    assert missing_host.exit_code == 1
+    assert "export_rs_host is required" in missing_host.output
+
+    missing_password = CliRunner().invoke(
+        main,
+        [
+            *base_args,
+            "--export-rs-host",
+            "redshift-cluster.example.amazonaws.com",
+            "--export-rs-database",
+            "analytics",
+            "--export-rs-user",
+            "svc_llm_diff",
+            "--export-rs-schema",
+            "llm_diff",
+            "--export-rs-table",
+            "diff_rows",
+        ],
+    )
+    assert missing_password.exit_code == 1
+    assert "Redshift password is required" in missing_password.output
+
+    invalid_port = CliRunner().invoke(
+        main,
+        [
+            *base_args,
+            "--export-rs-host",
+            "redshift-cluster.example.amazonaws.com",
+            "--export-rs-port",
+            "0",
+            "--export-rs-database",
+            "analytics",
+            "--export-rs-user",
+            "svc_llm_diff",
+            "--export-rs-schema",
+            "llm_diff",
+            "--export-rs-table",
+            "diff_rows",
+            "--export-rs-password",
+            "rs-secret",
+        ],
+    )
+    assert invalid_port.exit_code == 1
+    assert "export_rs_port must be > 0" in invalid_port.output
+
+
+def test_report_redshift_export_connector_rejects_non_ndjson_format(tmp_path: Path) -> None:
+    report_path = tmp_path / "report_redshift_export_non_ndjson.json"
+    csv_path = tmp_path / "report_redshift_export_non_ndjson.csv"
+    report = BehaviorReport(
+        model_a="gpt-4o",
+        model_b="gpt-4.5",
+        suite_name="suite_redshift_export",
+        total_tests=0,
+        total_diffs=0,
+        regressions=0,
+        improvements=0,
+        duration_seconds=0.0,
+    )
+    report_path.write_text(json.dumps(report.model_dump(mode="json"), indent=2), encoding="utf-8")
+
+    result = CliRunner().invoke(
+        main,
+        [
+            "report",
+            str(report_path),
+            "--format",
+            "csv",
+            "--output",
+            str(csv_path),
+            "--export-connector",
+            "redshift",
+            "--export-rs-host",
+            "redshift-cluster.example.amazonaws.com",
+            "--export-rs-database",
+            "analytics",
+            "--export-rs-user",
+            "svc_llm_diff",
+            "--export-rs-password",
+            "rs-secret",
+            "--export-rs-schema",
+            "llm_diff",
+            "--export-rs-table",
+            "diff_rows",
+        ],
+    )
+
+    assert result.exit_code == 1
+    assert "supports only --format ndjson" in result.output
+
+
 def test_report_export_connector_rejects_table_format(tmp_path: Path, monkeypatch) -> None:
     report_path = tmp_path / "report_table_export.json"
     report = BehaviorReport(

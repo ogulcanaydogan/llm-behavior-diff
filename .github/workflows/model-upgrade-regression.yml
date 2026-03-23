@@ -75,6 +75,7 @@ on:
           - gcs
           - bigquery
           - snowflake
+          - redshift
       export_connector_endpoint:
         description: "Optional export connector endpoint URL (required for export_connector=http)"
         required: false
@@ -235,6 +236,8 @@ on:
         required: false
       SNOWFLAKE_PASSWORD:
         required: false
+      REDSHIFT_PASSWORD:
+        required: false
 
 permissions:
   contents: read
@@ -283,10 +286,18 @@ jobs:
       EXPORT_SF_DATABASE: ${{ inputs.export_sf_database }}
       EXPORT_SF_SCHEMA: ${{ inputs.export_sf_schema }}
       EXPORT_SF_TABLE: ${{ inputs.export_sf_table }}
+      EXPORT_RS_HOST: ${{ vars.EXPORT_RS_HOST }}
+      EXPORT_RS_PORT: ${{ vars.EXPORT_RS_PORT }}
+      EXPORT_RS_DATABASE: ${{ vars.EXPORT_RS_DATABASE }}
+      EXPORT_RS_USER: ${{ vars.EXPORT_RS_USER }}
+      EXPORT_RS_SCHEMA: ${{ vars.EXPORT_RS_SCHEMA }}
+      EXPORT_RS_TABLE: ${{ vars.EXPORT_RS_TABLE }}
+      EXPORT_RS_SSLMODE: ${{ vars.EXPORT_RS_SSLMODE }}
       AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
       AWS_SESSION_TOKEN: ${{ secrets.AWS_SESSION_TOKEN }}
       LLM_DIFF_EXPORT_SF_PASSWORD: ${{ secrets.SNOWFLAKE_PASSWORD }}
+      LLM_DIFF_EXPORT_RS_PASSWORD: ${{ secrets.REDSHIFT_PASSWORD }}
 
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
@@ -451,6 +462,39 @@ jobs:
               connector_args+=(--export-sf-database "$EXPORT_SF_DATABASE")
               connector_args+=(--export-sf-schema "$EXPORT_SF_SCHEMA")
               connector_args+=(--export-sf-table "$EXPORT_SF_TABLE")
+              export_args_ndjson=("${connector_args[@]}")
+            elif [ "$EXPORT_CONNECTOR" = "redshift" ]; then
+              if [ -z "$EXPORT_RS_HOST" ]; then
+                echo "EXPORT_RS_HOST repository variable is required when export_connector=redshift."
+                exit 1
+              fi
+              if [ -z "$EXPORT_RS_DATABASE" ]; then
+                echo "EXPORT_RS_DATABASE repository variable is required when export_connector=redshift."
+                exit 1
+              fi
+              if [ -z "$EXPORT_RS_USER" ]; then
+                echo "EXPORT_RS_USER repository variable is required when export_connector=redshift."
+                exit 1
+              fi
+              if [ -z "$LLM_DIFF_EXPORT_RS_PASSWORD" ]; then
+                echo "REDSHIFT_PASSWORD secret is required when export_connector=redshift."
+                exit 1
+              fi
+              if [ -z "$EXPORT_RS_SCHEMA" ]; then
+                echo "EXPORT_RS_SCHEMA repository variable is required when export_connector=redshift."
+                exit 1
+              fi
+              if [ -z "$EXPORT_RS_TABLE" ]; then
+                echo "EXPORT_RS_TABLE repository variable is required when export_connector=redshift."
+                exit 1
+              fi
+              connector_args+=(--export-rs-host "$EXPORT_RS_HOST")
+              connector_args+=(--export-rs-port "${EXPORT_RS_PORT:-5439}")
+              connector_args+=(--export-rs-database "$EXPORT_RS_DATABASE")
+              connector_args+=(--export-rs-user "$EXPORT_RS_USER")
+              connector_args+=(--export-rs-schema "$EXPORT_RS_SCHEMA")
+              connector_args+=(--export-rs-table "$EXPORT_RS_TABLE")
+              connector_args+=(--export-rs-sslmode "${EXPORT_RS_SSLMODE:-require}")
               export_args_ndjson=("${connector_args[@]}")
             else
               echo "Unsupported export_connector: $EXPORT_CONNECTOR"

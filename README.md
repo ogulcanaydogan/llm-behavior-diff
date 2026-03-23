@@ -43,7 +43,7 @@ Ad-hoc prompt checks miss these patterns and are hard to reproduce in CI.
 - Single-suite run command with retry/rate-limit/cost controls
 - JSON report artifacts for CI and governance workflows
 - Report rendering in `table`, `json`, `markdown`, `csv`, `ndjson`, `junit`, and interactive self-contained `html`
-- Optional direct export connectors for rendered reports (`--export-connector http|s3|gcs|bigquery|snowflake`)
+- Optional direct export connectors for rendered reports (`--export-connector http|s3|gcs|bigquery|snowflake|redshift`)
 - Run-to-run compare command with delta metrics
 - Policy gate command for deterministic release decisions (`strict|balanced|permissive`)
 
@@ -71,6 +71,7 @@ export LLM_DIFF_LOCAL_BASE_URL=http://localhost:11434/v1
 # export AWS_SESSION_TOKEN=...   # optional
 # export GOOGLE_APPLICATION_CREDENTIALS=/path/to/gcp-service-account.json  # optional ADC
 # export LLM_DIFF_EXPORT_SF_PASSWORD=...  # optional Snowflake export password
+# export LLM_DIFF_EXPORT_RS_PASSWORD=...  # optional Redshift export password
 ```
 
 ### 2) Create a suite
@@ -150,6 +151,15 @@ llm-diff report run_report.json --format ndjson -o run_report.ndjson \
   --export-sf-database ANALYTICS_DB \
   --export-sf-schema LLM_DIFF \
   --export-sf-table DIFF_ROWS
+llm-diff report run_report.json --format ndjson -o run_report.ndjson \
+  --export-connector redshift \
+  --export-rs-host redshift-cluster.example.amazonaws.com \
+  --export-rs-port 5439 \
+  --export-rs-database analytics \
+  --export-rs-user svc_llm_diff \
+  --export-rs-schema llm_diff \
+  --export-rs-table diff_rows \
+  --export-rs-sslmode require
 ```
 
 ### 6) Compare two runs
@@ -261,6 +271,7 @@ Optional direct export connectors:
 - GCS: `--export-connector gcs --export-gcs-bucket ... [--export-gcs-prefix ...] [--export-gcs-project ...]` (ADC auth)
 - BigQuery (NDJSON only): `--export-connector bigquery --format ndjson --export-bq-project ... --export-bq-dataset ... --export-bq-table ... [--export-bq-location ...]`
 - Snowflake (NDJSON only): `--export-connector snowflake --format ndjson --export-sf-account ... --export-sf-user ... --export-sf-warehouse ... --export-sf-database ... --export-sf-schema ... --export-sf-table ... [--export-sf-role ...]` (`--export-sf-password` or `LLM_DIFF_EXPORT_SF_PASSWORD`)
+- Redshift (NDJSON only): `--export-connector redshift --format ndjson --export-rs-host ... --export-rs-port 5439 --export-rs-database ... --export-rs-user ... --export-rs-schema ... --export-rs-table ... [--export-rs-sslmode ...]` (`--export-rs-password` or `LLM_DIFF_EXPORT_RS_PASSWORD`)
 
 ### `llm-diff compare`
 
@@ -282,7 +293,7 @@ Evaluate one run report with deterministic policy tiers:
 - `release-check.yml`: build/twine/wheel smoke checks
 - `publish-pypi.yml`: manual TestPyPI/PyPI publish flow
 - `docker-image.yml`: PR/master build+smoke, optional manual GHCR push
-- `model-upgrade-regression.yml`: manual/reusable regression gate (`gate_policy`, `gate_policy_pack`, optional `gate_policy_file`; optional factual connector inputs; default `strict + core`) + per-suite export artifacts (`csv`, `ndjson`, `junit`) + optional direct export connectors (`http|s3|gcs|bigquery|snowflake`; `gcs` values are env-based via `EXPORT_GCS_BUCKET|EXPORT_GCS_PREFIX|EXPORT_GCS_PROJECT` repo vars)
+- `model-upgrade-regression.yml`: manual/reusable regression gate (`gate_policy`, `gate_policy_pack`, optional `gate_policy_file`; optional factual connector inputs; default `strict + core`) + per-suite export artifacts (`csv`, `ndjson`, `junit`) + optional direct export connectors (`http|s3|gcs|bigquery|snowflake|redshift`; `gcs` and `redshift` values are env-based via repo vars/secrets)
 - Node24 deprecation closure: workflows keep `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24=true` and now run on Node24-ready major action pins.
 - Workflow security hardening: all third-party actions are pinned to full commit SHAs; Dependabot auto-updates `github-actions` minor/patch versions weekly, while major bumps are handled in planned maintenance windows.
 
@@ -319,7 +330,7 @@ Implemented now:
 - bootstrap delta CI + permutation p-value (compare rows)
 - risk-tier gate policies (CLI + model-upgrade workflow)
 - enterprise-ready report export artifacts (`csv`, `ndjson`, `junit`)
-- optional direct export connectors (`http`, `s3`, `gcs`, `bigquery`, `snowflake`; `bigquery`/`snowflake` are NDJSON-only)
+- optional direct export connectors (`http`, `s3`, `gcs`, `bigquery`, `snowflake`, `redshift`; `bigquery`/`snowflake`/`redshift` are NDJSON-only)
 - suite templates and CI distribution workflows
 
 Committed roadmap status:
@@ -328,7 +339,7 @@ Committed roadmap status:
 
 Future exploration candidates (not committed yet):
 
-- additional provider-specific external sinks beyond `s3`, `gcs`, `bigquery`, and `snowflake` (for example warehouse-native connectors)
+- additional provider-specific external sinks beyond `s3`, `gcs`, `bigquery`, `snowflake`, and `redshift` (for example warehouse-native connectors)
 
 ## Contributing
 

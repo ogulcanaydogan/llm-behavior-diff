@@ -68,8 +68,8 @@
   - `csv` and `junit` stay metric/status focused and do not include raw responses.
   - `ndjson` includes raw responses and comparator metadata per diff row.
   - table/markdown include run-level bootstrap + Wilson CI when available.
-  - optional direct connector dispatch (`--export-connector http|s3|gcs|bigquery|snowflake`) posts rendered content externally.
-  - `gcs` supports all non-table formats with ADC auth; `bigquery` and `snowflake` are NDJSON-only.
+  - optional direct connector dispatch (`--export-connector http|s3|gcs|bigquery|snowflake|redshift`) posts rendered content externally.
+  - `gcs` supports all non-table formats with ADC auth; `bigquery`, `snowflake`, and `redshift` are NDJSON-only.
   - connector uploads are fail-fast when connector-specific validation/auth/upload fails.
 - `compare` renders run-to-run metric deltas and optional markdown output.
 - `compare` also computes bootstrap delta CI + permutation p-value from per-test outcomes when both reports include `diff_results`.

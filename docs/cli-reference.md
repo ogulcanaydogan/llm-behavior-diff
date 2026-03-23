@@ -100,6 +100,15 @@ llm-diff report report.json --format ndjson -o report.ndjson \
   --export-sf-database ANALYTICS_DB \
   --export-sf-schema LLM_DIFF \
   --export-sf-table DIFF_ROWS
+llm-diff report report.json --format ndjson -o report.ndjson \
+  --export-connector redshift \
+  --export-rs-host redshift-cluster.example.amazonaws.com \
+  --export-rs-port 5439 \
+  --export-rs-database analytics \
+  --export-rs-user svc_llm_diff \
+  --export-rs-schema llm_diff \
+  --export-rs-table diff_rows \
+  --export-rs-sslmode require
 ```
 
 Options:
@@ -107,7 +116,7 @@ Options:
 - `report_file` (required): JSON report path
 - `--format`: `table` (default), `json`, `html`, `markdown`, `csv`, `ndjson`, `junit`
 - `--output`, `-o`: output file path (stdout when omitted)
-- `--export-connector`: `none` (default), `http`, `s3`, `gcs`, `bigquery`, or `snowflake`
+- `--export-connector`: `none` (default), `http`, `s3`, `gcs`, `bigquery`, `snowflake`, or `redshift`
 - `--export-endpoint`: required when `--export-connector=http`
 - `--export-timeout`: connector timeout seconds (default `10.0`)
 - `--export-api-key`: optional explicit API key (fallback: `LLM_DIFF_EXPORT_API_KEY`)
@@ -129,6 +138,14 @@ Options:
 - `--export-sf-database`: required when `--export-connector=snowflake`
 - `--export-sf-schema`: required when `--export-connector=snowflake`
 - `--export-sf-table`: required when `--export-connector=snowflake`
+- `--export-rs-host`: required when `--export-connector=redshift`
+- `--export-rs-port`: optional Redshift port (default `5439`)
+- `--export-rs-database`: required when `--export-connector=redshift`
+- `--export-rs-user`: required when `--export-connector=redshift`
+- `--export-rs-password`: optional explicit Redshift password (fallback: `LLM_DIFF_EXPORT_RS_PASSWORD`)
+- `--export-rs-schema`: required when `--export-connector=redshift`
+- `--export-rs-table`: required when `--export-connector=redshift`
+- `--export-rs-sslmode`: optional Redshift sslmode (default `require`)
 
 `report` table/markdown output includes run-level bootstrap + Wilson confidence intervals when
 `metadata.significance` is present.
@@ -141,11 +158,12 @@ Export format behavior:
 - `csv`: one row per `diff_result`, metric-focused columns, no raw model responses.
 - `ndjson`: one JSON object per `diff_result`, includes run context + comparator metadata + raw responses.
 - `junit`: one `<testcase>` per `diff_result`; `is_regression=true` maps to `<failure>`, others pass with status in `system-out`.
-- direct connector dispatch is opt-in and supports `http`, `s3`, `gcs`, `bigquery`, and `snowflake`.
+- direct connector dispatch is opt-in and supports `http`, `s3`, `gcs`, `bigquery`, `snowflake`, and `redshift`.
 - connector dispatch requires non-`table` formats.
 - `gcs` supports all non-`table` report formats and uses ADC credentials.
 - `bigquery` dispatch requires `--format ndjson` and fails fast on insert errors.
 - `snowflake` dispatch requires `--format ndjson` and fails fast on insert errors.
+- `redshift` dispatch requires `--format ndjson` and fails fast on insert errors.
 
 ## `llm-diff compare`
 
