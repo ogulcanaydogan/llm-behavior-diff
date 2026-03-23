@@ -216,7 +216,7 @@ def run(
 )
 @click.option(
     "--export-connector",
-    type=click.Choice(["none", "http", "s3", "bigquery"]),
+    type=click.Choice(["none", "http", "s3", "bigquery", "snowflake"]),
     default="none",
     show_default=True,
     help="Optional direct export connector for rendered report output",
@@ -275,6 +275,46 @@ def run(
     type=str,
     help="Optional BigQuery location override",
 )
+@click.option(
+    "--export-sf-account",
+    type=str,
+    help="Snowflake account identifier (required when --export-connector snowflake)",
+)
+@click.option(
+    "--export-sf-user",
+    type=str,
+    help="Snowflake user (required when --export-connector snowflake)",
+)
+@click.option(
+    "--export-sf-password",
+    type=str,
+    help="Snowflake password (optional flag; fallback: LLM_DIFF_EXPORT_SF_PASSWORD)",
+)
+@click.option(
+    "--export-sf-role",
+    type=str,
+    help="Optional Snowflake role",
+)
+@click.option(
+    "--export-sf-warehouse",
+    type=str,
+    help="Snowflake warehouse (required when --export-connector snowflake)",
+)
+@click.option(
+    "--export-sf-database",
+    type=str,
+    help="Snowflake database (required when --export-connector snowflake)",
+)
+@click.option(
+    "--export-sf-schema",
+    type=str,
+    help="Snowflake schema (required when --export-connector snowflake)",
+)
+@click.option(
+    "--export-sf-table",
+    type=str,
+    help="Snowflake table (required when --export-connector snowflake)",
+)
 def report(
     report_file: str,
     format: str,
@@ -290,6 +330,14 @@ def report(
     export_bq_dataset: Optional[str],
     export_bq_table: Optional[str],
     export_bq_location: Optional[str],
+    export_sf_account: Optional[str],
+    export_sf_user: Optional[str],
+    export_sf_password: Optional[str],
+    export_sf_role: Optional[str],
+    export_sf_warehouse: Optional[str],
+    export_sf_database: Optional[str],
+    export_sf_schema: Optional[str],
+    export_sf_table: Optional[str],
 ) -> None:
     """
     Generate behavioral diff report from results.
@@ -347,6 +395,14 @@ def report(
                 bq_dataset=export_bq_dataset,
                 bq_table=export_bq_table,
                 bq_location=export_bq_location,
+                sf_account=export_sf_account,
+                sf_user=export_sf_user,
+                sf_password=export_sf_password,
+                sf_role=export_sf_role,
+                sf_warehouse=export_sf_warehouse,
+                sf_database=export_sf_database,
+                sf_schema=export_sf_schema,
+                sf_table=export_sf_table,
             )
             console.print("[green]External export delivered[/green]")
         except Exception as exc:
@@ -861,6 +917,13 @@ def _resolve_export_api_key(explicit_api_key: Optional[str]) -> Optional[str]:
     return env_api_key or None
 
 
+def _resolve_export_snowflake_password(explicit_password: Optional[str]) -> Optional[str]:
+    if explicit_password and explicit_password.strip():
+        return explicit_password.strip()
+    env_password = os.getenv("LLM_DIFF_EXPORT_SF_PASSWORD", "").strip()
+    return env_password or None
+
+
 def _content_type_for_report_format(report_format: str) -> str:
     mapping = {
         "json": "application/json",
@@ -919,6 +982,42 @@ def _create_bigquery_client(project: str, location: Optional[str]) -> Any:
     return bigquery.Client(**kwargs)
 
 
+def _create_snowflake_connection(
+    *,
+    account: str,
+    user: str,
+    password: str,
+    warehouse: str,
+    database: str,
+    schema: str,
+    role: Optional[str],
+    timeout_seconds: float,
+) -> Any:
+    import snowflake.connector
+
+    kwargs: dict[str, Any] = {
+        "account": account,
+        "user": user,
+        "password": password,
+        "warehouse": warehouse,
+        "database": database,
+        "schema": schema,
+        "login_timeout": max(1, int(round(timeout_seconds))),
+        "network_timeout": timeout_seconds,
+    }
+    if role and role.strip():
+        kwargs["role"] = role.strip()
+    return snowflake.connector.connect(**kwargs)
+
+
+def _quote_snowflake_identifier(identifier: str) -> str:
+    normalized = identifier.strip()
+    if not normalized:
+        raise ValueError("Snowflake identifier must not be empty.")
+    escaped = normalized.replace('"', '""')
+    return f'"{escaped}"'
+
+
 def _build_bigquery_rows_from_ndjson(content: str) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     for line_number, line in enumerate(content.splitlines(), start=1):
@@ -975,6 +1074,14 @@ def _dispatch_report_export(
     bq_dataset: Optional[str],
     bq_table: Optional[str],
     bq_location: Optional[str],
+    sf_account: Optional[str],
+    sf_user: Optional[str],
+    sf_password: Optional[str],
+    sf_role: Optional[str],
+    sf_warehouse: Optional[str],
+    sf_database: Optional[str],
+    sf_schema: Optional[str],
+    sf_table: Optional[str],
 ) -> None:
     if timeout_seconds <= 0:
         raise ValueError("export_timeout must be > 0")
@@ -1064,8 +1171,72 @@ def _dispatch_report_export(
             raise RuntimeError(f"BigQuery insert failed for table '{table_id}': {errors}")
         return
 
+    if normalized == "snowflake":
+        if report_format != "ndjson":
+            raise ValueError("export_connector 'snowflake' supports only --format ndjson.")
+        if not sf_account or not sf_account.strip():
+            raise ValueError("export_sf_account is required when export_connector is 'snowflake'.")
+        if not sf_user or not sf_user.strip():
+            raise ValueError("export_sf_user is required when export_connector is 'snowflake'.")
+        resolved_password = _resolve_export_snowflake_password(sf_password)
+        if not resolved_password:
+            raise ValueError(
+                "Snowflake password is required via --export-sf-password or "
+                "LLM_DIFF_EXPORT_SF_PASSWORD."
+            )
+        if not sf_warehouse or not sf_warehouse.strip():
+            raise ValueError(
+                "export_sf_warehouse is required when export_connector is 'snowflake'."
+            )
+        if not sf_database or not sf_database.strip():
+            raise ValueError("export_sf_database is required when export_connector is 'snowflake'.")
+        if not sf_schema or not sf_schema.strip():
+            raise ValueError("export_sf_schema is required when export_connector is 'snowflake'.")
+        if not sf_table or not sf_table.strip():
+            raise ValueError("export_sf_table is required when export_connector is 'snowflake'.")
+
+        rows = _build_bigquery_rows_from_ndjson(content)
+        if not rows:
+            return
+
+        account = sf_account.strip()
+        user = sf_user.strip()
+        warehouse = sf_warehouse.strip()
+        database = sf_database.strip()
+        schema = sf_schema.strip()
+        table = sf_table.strip()
+        quoted_table = ".".join(
+            [
+                _quote_snowflake_identifier(database),
+                _quote_snowflake_identifier(schema),
+                _quote_snowflake_identifier(table),
+            ]
+        )
+        columns = list(rows[0].keys())
+        quoted_columns = ", ".join(_quote_snowflake_identifier(column) for column in columns)
+        placeholders = ", ".join(f"%({column})s" for column in columns)
+        query = f"INSERT INTO {quoted_table} ({quoted_columns}) VALUES ({placeholders})"
+        connection = _create_snowflake_connection(
+            account=account,
+            user=user,
+            password=resolved_password,
+            warehouse=warehouse,
+            database=database,
+            schema=schema,
+            role=sf_role,
+            timeout_seconds=timeout_seconds,
+        )
+        cursor = connection.cursor()
+        try:
+            cursor.executemany(query, rows)
+            connection.commit()
+        finally:
+            cursor.close()
+            connection.close()
+        return
+
     raise ValueError(
-        f"Unsupported export connector '{connector}'. Supported: none, http, s3, bigquery."
+        f"Unsupported export connector '{connector}'. Supported: none, http, s3, bigquery, snowflake."
     )
 
 

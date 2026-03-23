@@ -1239,6 +1239,246 @@ def test_report_bigquery_export_connector_rejects_non_ndjson_format(tmp_path: Pa
     assert "supports only --format ndjson" in result.output
 
 
+def test_report_snowflake_export_connector_success_with_env_password(
+    tmp_path: Path, monkeypatch
+) -> None:
+    report_path = tmp_path / "report_snowflake_export.json"
+    ndjson_path = tmp_path / "report_snowflake_export.ndjson"
+    captured: dict[str, object] = {}
+
+    report = BehaviorReport(
+        model_a="gpt-4o",
+        model_b="gpt-4.5",
+        suite_name="suite_snowflake_export",
+        total_tests=1,
+        total_diffs=1,
+        regressions=0,
+        improvements=1,
+        duration_seconds=0.4,
+        diff_results=[
+            DiffResult(
+                test_id="sf_001",
+                model_a="gpt-4o",
+                model_b="gpt-4.5",
+                response_a="a",
+                response_b="b",
+                is_semantically_same=False,
+                semantic_similarity=0.11,
+                behavior_category=BehaviorCategory.KNOWLEDGE_CHANGE,
+                is_regression=False,
+                is_improvement=True,
+                confidence=0.8,
+                explanation="improvement",
+                metadata={"comparator": "factual"},
+            )
+        ],
+    )
+    report_path.write_text(json.dumps(report.model_dump(mode="json"), indent=2), encoding="utf-8")
+
+    class FakeCursor:
+        def executemany(self, query: str, rows: list[dict[str, object]]) -> None:
+            captured["query"] = query
+            captured["rows"] = rows
+
+        def close(self) -> None:
+            captured["cursor_closed"] = True
+
+    class FakeConnection:
+        def cursor(self) -> FakeCursor:
+            captured["cursor_opened"] = True
+            return FakeCursor()
+
+        def commit(self) -> None:
+            captured["committed"] = True
+
+        def close(self) -> None:
+            captured["connection_closed"] = True
+
+    def fake_create_snowflake_connection(**kwargs):
+        captured["connect_kwargs"] = kwargs
+        return FakeConnection()
+
+    monkeypatch.setenv("LLM_DIFF_EXPORT_SF_PASSWORD", "sf-secret")
+    monkeypatch.setattr(
+        "llm_behavior_diff.cli._create_snowflake_connection", fake_create_snowflake_connection
+    )
+
+    result = CliRunner().invoke(
+        main,
+        [
+            "report",
+            str(report_path),
+            "--format",
+            "ndjson",
+            "--output",
+            str(ndjson_path),
+            "--export-connector",
+            "snowflake",
+            "--export-sf-account",
+            "xy12345.eu-west-1",
+            "--export-sf-user",
+            "svc_llm_diff",
+            "--export-sf-role",
+            "ANALYST",
+            "--export-sf-warehouse",
+            "COMPUTE_WH",
+            "--export-sf-database",
+            "ANALYTICS_DB",
+            "--export-sf-schema",
+            "LLM_DIFF",
+            "--export-sf-table",
+            "DIFF_ROWS",
+            "--export-timeout",
+            "6",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert "External export delivered" in result.output
+
+    connect_kwargs = captured["connect_kwargs"]
+    assert isinstance(connect_kwargs, dict)
+    assert connect_kwargs["account"] == "xy12345.eu-west-1"
+    assert connect_kwargs["user"] == "svc_llm_diff"
+    assert connect_kwargs["password"] == "sf-secret"
+    assert connect_kwargs["role"] == "ANALYST"
+    assert connect_kwargs["warehouse"] == "COMPUTE_WH"
+    assert connect_kwargs["database"] == "ANALYTICS_DB"
+    assert connect_kwargs["schema"] == "LLM_DIFF"
+    assert connect_kwargs["timeout_seconds"] == 6.0
+
+    query = captured["query"]
+    assert isinstance(query, str)
+    assert 'INSERT INTO "ANALYTICS_DB"."LLM_DIFF"."DIFF_ROWS"' in query
+    rows = captured["rows"]
+    assert isinstance(rows, list)
+    assert len(rows) == 1
+    assert rows[0]["test_id"] == "sf_001"
+    assert rows[0]["metadata_json"] == '{"comparator": "factual"}'
+    assert captured["committed"] is True
+    assert captured["cursor_closed"] is True
+    assert captured["connection_closed"] is True
+
+
+def test_report_snowflake_export_connector_requires_fields(tmp_path: Path) -> None:
+    report_path = tmp_path / "report_snowflake_export_missing_fields.json"
+    ndjson_path = tmp_path / "report_snowflake_export_missing_fields.ndjson"
+    report = BehaviorReport(
+        model_a="gpt-4o",
+        model_b="gpt-4.5",
+        suite_name="suite_snowflake_export",
+        total_tests=0,
+        total_diffs=0,
+        regressions=0,
+        improvements=0,
+        duration_seconds=0.0,
+    )
+    report_path.write_text(json.dumps(report.model_dump(mode="json"), indent=2), encoding="utf-8")
+
+    result_missing_account = CliRunner().invoke(
+        main,
+        [
+            "report",
+            str(report_path),
+            "--format",
+            "ndjson",
+            "--output",
+            str(ndjson_path),
+            "--export-connector",
+            "snowflake",
+            "--export-sf-user",
+            "svc_llm_diff",
+            "--export-sf-warehouse",
+            "COMPUTE_WH",
+            "--export-sf-database",
+            "ANALYTICS_DB",
+            "--export-sf-schema",
+            "LLM_DIFF",
+            "--export-sf-table",
+            "DIFF_ROWS",
+            "--export-sf-password",
+            "sf-secret",
+        ],
+    )
+    assert result_missing_account.exit_code == 1
+    assert "export_sf_account is required" in result_missing_account.output
+
+    result_missing_password = CliRunner().invoke(
+        main,
+        [
+            "report",
+            str(report_path),
+            "--format",
+            "ndjson",
+            "--output",
+            str(ndjson_path),
+            "--export-connector",
+            "snowflake",
+            "--export-sf-account",
+            "xy12345.eu-west-1",
+            "--export-sf-user",
+            "svc_llm_diff",
+            "--export-sf-warehouse",
+            "COMPUTE_WH",
+            "--export-sf-database",
+            "ANALYTICS_DB",
+            "--export-sf-schema",
+            "LLM_DIFF",
+            "--export-sf-table",
+            "DIFF_ROWS",
+        ],
+    )
+    assert result_missing_password.exit_code == 1
+    assert "Snowflake password is required" in result_missing_password.output
+
+
+def test_report_snowflake_export_connector_rejects_non_ndjson_format(tmp_path: Path) -> None:
+    report_path = tmp_path / "report_snowflake_export_non_ndjson.json"
+    csv_path = tmp_path / "report_snowflake_export_non_ndjson.csv"
+    report = BehaviorReport(
+        model_a="gpt-4o",
+        model_b="gpt-4.5",
+        suite_name="suite_snowflake_export",
+        total_tests=0,
+        total_diffs=0,
+        regressions=0,
+        improvements=0,
+        duration_seconds=0.0,
+    )
+    report_path.write_text(json.dumps(report.model_dump(mode="json"), indent=2), encoding="utf-8")
+
+    result = CliRunner().invoke(
+        main,
+        [
+            "report",
+            str(report_path),
+            "--format",
+            "csv",
+            "--output",
+            str(csv_path),
+            "--export-connector",
+            "snowflake",
+            "--export-sf-account",
+            "xy12345.eu-west-1",
+            "--export-sf-user",
+            "svc_llm_diff",
+            "--export-sf-password",
+            "sf-secret",
+            "--export-sf-warehouse",
+            "COMPUTE_WH",
+            "--export-sf-database",
+            "ANALYTICS_DB",
+            "--export-sf-schema",
+            "LLM_DIFF",
+            "--export-sf-table",
+            "DIFF_ROWS",
+        ],
+    )
+
+    assert result.exit_code == 1
+    assert "supports only --format ndjson" in result.output
+
+
 def test_report_export_connector_rejects_table_format(tmp_path: Path) -> None:
     report_path = tmp_path / "report_table_export.json"
     report = BehaviorReport(
