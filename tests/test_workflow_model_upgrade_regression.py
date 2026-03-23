@@ -232,3 +232,36 @@ def test_model_upgrade_workflow_has_factual_connector_inputs_and_export_wiring()
     export_with = export_step.get("with")
     assert isinstance(export_with, dict)
     assert export_with.get("path") == "artifacts/exports/"
+
+    benchmark_step = next(
+        step
+        for step in steps
+        if isinstance(step, dict) and step.get("name") == "Generate benchmark summary"
+    )
+    benchmark_script = str(benchmark_step.get("run", ""))
+    assert "llm-diff benchmark artifacts/reports/*.json --format json" in benchmark_script
+    assert "artifacts/benchmark/benchmark.json" in benchmark_script
+    assert "llm-diff benchmark artifacts/reports/*.json --format markdown" in benchmark_script
+    assert "artifacts/benchmark/benchmark.md" in benchmark_script
+
+    benchmark_summary_step = next(
+        step
+        for step in steps
+        if isinstance(step, dict) and step.get("name") == "Append benchmark summary to job summary"
+    )
+    benchmark_summary_script = str(benchmark_summary_step.get("run", ""))
+    assert (
+        'cat artifacts/benchmark/benchmark.md >> "$GITHUB_STEP_SUMMARY"' in benchmark_summary_script
+    )
+
+    benchmark_upload_step = next(
+        step
+        for step in steps
+        if isinstance(step, dict) and step.get("name") == "Upload benchmark summary"
+    )
+    assert benchmark_upload_step.get("uses") == (
+        "actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f"
+    )
+    benchmark_upload_with = benchmark_upload_step.get("with")
+    assert isinstance(benchmark_upload_with, dict)
+    assert benchmark_upload_with.get("path") == "artifacts/benchmark/"
