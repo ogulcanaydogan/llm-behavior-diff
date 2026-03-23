@@ -166,6 +166,10 @@ Artifacts:
   - `<suite>.csv` (metric-focused row export, no raw responses)
   - `<suite>.ndjson` (row-level full payload including responses/metadata)
   - `<suite>.junit.xml` (CI-friendly regression testcase mapping)
+- Always-on benchmark artifacts are uploaded from report JSONs:
+  - `benchmark.json` (machine-readable advisory summary)
+  - `benchmark.md` (human-readable advisory summary appended to job summary)
+- Benchmark output is advisory-only and does not override gate pass/fail.
 - When `export_connector=http` is enabled, each generated export is also posted
   to the configured endpoint (`export_connector_endpoint`) via report command dispatch.
 - When `export_connector=s3` is enabled, each generated export is also uploaded to

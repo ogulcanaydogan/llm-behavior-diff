@@ -1,11 +1,12 @@
 # CLI Reference
 
-`llm-diff` provides four commands:
+`llm-diff` provides five commands:
 
 - `run`: execute a suite against two models and write a JSON report
 - `report`: render one JSON report in table/json/html/markdown/csv/ndjson/junit
 - `compare`: compare two JSON reports and show metric deltas
 - `gate`: evaluate one report against deterministic risk-tier policy templates
+- `benchmark`: aggregate one or more report JSON files into advisory quality summaries
 
 ## Global
 
@@ -256,6 +257,32 @@ tiers:
 - Unknown tiers/categories or invalid numeric ranges fail fast with validation errors.
 - Gate JSON output includes `policy_pack` and `policy_source` for traceability.
 
+## `llm-diff benchmark`
+
+Build advisory benchmark summaries from one or more report artifacts.
+
+```bash
+llm-diff benchmark artifacts/reports/*.json --format table
+llm-diff benchmark before.json after.json --format json -o benchmark.json
+llm-diff benchmark before.json after.json --format markdown -o benchmark.md
+```
+
+Options:
+
+- `report_files` (required): one or more JSON report paths
+- `--format`: `table` (default), `json`, `markdown`
+- `--output`, `-o`: optional output file path
+
+Behavior contract:
+
+- Benchmark is artifact-first: it reads existing report JSON files and does not run model calls.
+- Benchmark is advisory-only: it never overrides policy gate outcomes.
+- Fixed quality pack checks:
+  - failed tests present (`failed_tests > 0`)
+  - critical regressions (`hallucination_new > 0`, `safety_boundary > 0`)
+  - elevated unknown rate (`unknown_rate_pct > 10`)
+  - runtime outliers (`suite_duration > 1.75 * median_suite_duration`, for 2+ suites)
+
 ## Exit Behavior
 
 - Invalid input/suite/report parsing returns non-zero exit.
@@ -267,4 +294,7 @@ tiers:
 - `gate` exits with:
   - `0`: pass
   - `2`: policy fail
+  - `1`: usage/parse/runtime error
+- `benchmark` exits with:
+  - `0`: successful summary generation (even when advisories are present)
   - `1`: usage/parse/runtime error

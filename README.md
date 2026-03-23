@@ -19,6 +19,7 @@ Current release baseline: **GA v1.0.0**.
 | Optional LLM-as-judge | Implemented | metadata-only, never overrides final decision |
 | Statistical significance (bootstrap + Wilson + permutation) | Implemented | run metadata + compare delta rows |
 | Risk-tier gate policies | Implemented | strict, balanced, permissive for CLI and CI |
+| Artifact benchmark quality pack | Implemented | advisory-only benchmark summaries from report JSONs |
 | CI release checks | Implemented | quality, build/twine, regression workflow |
 
 ## Why This Exists
@@ -48,6 +49,7 @@ Ad-hoc prompt checks miss these patterns and are hard to reproduce in CI.
 - Optional direct export connectors for rendered reports (`--export-connector http|s3|gcs|bigquery|snowflake|redshift|azure_blob`)
 - Run-to-run compare command with delta metrics
 - Policy gate command for deterministic release decisions (`strict|balanced|permissive`)
+- Advisory benchmark command for report artifacts (`llm-diff benchmark`)
 
 ## Installation
 
@@ -186,6 +188,13 @@ llm-diff gate candidate_run.json --policy strict
 llm-diff gate candidate_run.json --policy balanced --format json -o gate_result.json
 ```
 
+### 8) Build benchmark quality summary (advisory-only)
+
+```bash
+llm-diff benchmark run_report.json --format table
+llm-diff benchmark previous_run.json candidate_run.json --format markdown -o benchmark.md
+```
+
 ## How It Works
 
 1. Load and validate one suite YAML.
@@ -298,6 +307,14 @@ Evaluate one run report with deterministic policy tiers:
 - `--policy-pack`: `core` (default), `risk_averse`, `velocity`
 - `--policy-file`: optional custom YAML policy file (`version: v1`) that overrides pack selection for that run
 
+### `llm-diff benchmark`
+
+Builds artifact-first benchmark quality summaries from one or more report JSON files.
+
+- `llm-diff benchmark <report_json...> --format table|json|markdown`
+- advisory-only output (does not affect gate pass/fail)
+- fixed checks include failed tests, critical factual/safety regressions, unknown-rate, and runtime outliers
+
 ## Release & CI
 
 - `ci.yml`: quality checks on `master` push + PR (`ruff`, `black --check`, `mypy`, `pytest`)
@@ -305,6 +322,7 @@ Evaluate one run report with deterministic policy tiers:
 - `publish-pypi.yml`: manual TestPyPI/PyPI publish flow
 - `docker-image.yml`: PR/master build+smoke, optional manual GHCR push
 - `model-upgrade-regression.yml`: manual/reusable regression gate (`gate_policy`, `gate_policy_pack`, optional `gate_policy_file`; optional factual connector inputs; default `strict + core`) + per-suite export artifacts (`csv`, `ndjson`, `junit`) + optional direct export connectors (`http|s3|gcs|bigquery|snowflake|redshift|azure_blob`; `gcs`, `redshift`, and `azure_blob` values are env-based via repo vars/secrets)
+- `model-upgrade-regression.yml` also emits always-on benchmark artifacts (`artifacts/benchmark/benchmark.json`, `artifacts/benchmark/benchmark.md`) from generated suite report JSONs
 - Node24 deprecation closure: workflows keep `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24=true` and now run on Node24-ready major action pins.
 - Workflow security hardening: all third-party actions are pinned to full commit SHAs; Dependabot auto-updates `github-actions` minor/patch versions weekly, while major bumps are handled in planned maintenance windows.
 
@@ -340,6 +358,7 @@ Implemented now:
 - bootstrap + Wilson confidence intervals (run metadata)
 - bootstrap delta CI + permutation p-value (compare rows)
 - risk-tier gate policies (CLI + model-upgrade workflow)
+- artifact-first benchmark quality pack (advisory-only)
 - enterprise-ready report export artifacts (`csv`, `ndjson`, `junit`)
 - optional direct export connectors (`http`, `s3`, `gcs`, `bigquery`, `snowflake`, `redshift`, `azure_blob`; `gcs`/`azure_blob` support all non-table formats, `bigquery`/`snowflake`/`redshift` are NDJSON-only)
 - suite templates and CI distribution workflows

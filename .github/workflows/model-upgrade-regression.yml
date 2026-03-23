@@ -546,6 +546,20 @@ jobs:
             llm-diff report "$output_file" --format junit --output "artifacts/exports/${suite_name}.junit.xml" "${export_args_junit[@]}"
           done < suites_to_run.txt
 
+      - name: Generate benchmark summary
+        run: |
+          mkdir -p artifacts/benchmark
+          llm-diff benchmark artifacts/reports/*.json --format json --output artifacts/benchmark/benchmark.json
+          llm-diff benchmark artifacts/reports/*.json --format markdown --output artifacts/benchmark/benchmark.md
+
+      - name: Append benchmark summary to job summary
+        if: always()
+        run: |
+          if [ -f artifacts/benchmark/benchmark.md ]; then
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            cat artifacts/benchmark/benchmark.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+
       - name: Upload suite reports
         if: always()
         uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f
@@ -560,6 +574,14 @@ jobs:
         with:
           name: model-upgrade-exports-${{ github.run_id }}
           path: artifacts/exports/
+          if-no-files-found: error
+
+      - name: Upload benchmark summary
+        if: always()
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f
+        with:
+          name: model-upgrade-benchmark-${{ github.run_id }}
+          path: artifacts/benchmark/
           if-no-files-found: error
 
       - name: Aggregate suite results and apply gate policy

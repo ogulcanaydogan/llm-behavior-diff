@@ -20,6 +20,7 @@ import httpx
 from rich.console import Console
 from rich.table import Table
 
+from .benchmark import build_benchmark_summary
 from .policy import SUPPORTED_POLICIES, SUPPORTED_POLICY_PACKS, evaluate_report_policy
 from .runner import BehaviorDiffRunner, load_test_suite
 from .schema import BehaviorReport
@@ -720,6 +721,59 @@ def gate(
     console.print("[green]Gate passed[/green]")
 
 
+@main.command()
+@click.argument("report_files", nargs=-1, type=click.Path(exists=True))
+@click.option(
+    "--format",
+    "output_format",
+    type=click.Choice(["table", "json", "markdown"]),
+    default="table",
+    show_default=True,
+    help="Output format",
+)
+@click.option(
+    "--output",
+    "-o",
+    type=click.Path(),
+    help="Optional output file path",
+)
+def benchmark(report_files: tuple[str, ...], output_format: str, output: Optional[str]) -> None:
+    """
+    Build advisory benchmark summary from one or more report artifacts.
+
+    Example:
+        llm-diff benchmark artifacts/reports/*.json --format table
+    """
+    if not report_files:
+        console.print("[red]At least one report JSON file is required.[/red]")
+        raise click.Abort()
+
+    reports = [_load_report(path) for path in report_files]
+    try:
+        summary = build_benchmark_summary(reports)
+    except Exception as exc:
+        console.print(f"[red]Error building benchmark summary: {exc}[/red]")
+        raise click.Abort() from exc
+
+    summary["source_reports"] = [str(path) for path in report_files]
+
+    if output_format == "table":
+        _print_benchmark_table(summary)
+        if output:
+            Path(output).write_text(
+                _format_benchmark_markdown(summary),
+                encoding="utf-8",
+            )
+            console.print(f"[green]Written to {output}[/green]")
+        return
+
+    if output_format == "json":
+        _output(json.dumps(summary, indent=2), output)
+        return
+
+    _output(_format_benchmark_markdown(summary), output)
+
+
 def _print_table_report(report: BehaviorReport) -> None:
     """Print report as rich table."""
     table = Table(title=f"Behavioral Diff Report: {report.model_a} vs {report.model_b}")
@@ -865,6 +919,166 @@ def _format_gate_text(report_file: str, report: BehaviorReport, evaluation: dict
         lines.append("## Reasons")
         for reason in reasons:
             lines.append(f"- {reason}")
+
+    return "\n".join(lines) + "\n"
+
+
+def _print_benchmark_table(summary: dict[str, Any]) -> None:
+    """Print benchmark summary as rich tables."""
+    table = Table(title="Benchmark Summary (Advisory-Only)")
+    table.add_column("Metric", style="cyan")
+    table.add_column("Value", style="magenta")
+    table.add_row("Reports", str(summary.get("total_reports", 0)))
+    table.add_row("Total Tests", str(summary.get("total_tests", 0)))
+    table.add_row("Processed Tests", str(summary.get("total_processed_tests", 0)))
+    table.add_row("Failed Tests", str(summary.get("total_failed_tests", 0)))
+    table.add_row("Total Duration (s)", f"{float(summary.get('total_duration_seconds', 0.0)):.4f}")
+    table.add_row("Avg Duration (s)", f"{float(summary.get('avg_duration_seconds', 0.0)):.4f}")
+    table.add_row(
+        "Throughput (tests/min)",
+        f"{float(summary.get('throughput_tests_per_min', 0.0)):.4f}",
+    )
+    table.add_row("Regression Rate (%)", f"{float(summary.get('regression_rate_pct', 0.0)):.4f}")
+    table.add_row(
+        "Improvement Rate (%)",
+        f"{float(summary.get('improvement_rate_pct', 0.0)):.4f}",
+    )
+    table.add_row(
+        "Semantic-Only Rate (%)",
+        f"{float(summary.get('semantic_only_rate_pct', 0.0)):.4f}",
+    )
+    table.add_row("Unknown Rate (%)", f"{float(summary.get('unknown_rate_pct', 0.0)):.4f}")
+    critical = summary.get("critical_regressions", {})
+    if isinstance(critical, dict):
+        table.add_row("Critical safety_boundary", str(critical.get("safety_boundary", 0)))
+        table.add_row("Critical hallucination_new", str(critical.get("hallucination_new", 0)))
+        table.add_row("Critical format_change", str(critical.get("format_change", 0)))
+    console.print(table)
+
+    quality_pack = summary.get("quality_pack", {})
+    advisories = quality_pack.get("advisories", []) if isinstance(quality_pack, dict) else []
+    if isinstance(advisories, list) and advisories:
+        advisory_table = Table(title="Quality Pack Advisories")
+        advisory_table.add_column("Code", style="yellow")
+        advisory_table.add_column("Message", style="white")
+        advisory_table.add_column("Value", style="magenta")
+        for advisory in advisories:
+            if not isinstance(advisory, dict):
+                continue
+            advisory_table.add_row(
+                str(advisory.get("code", "unknown")),
+                str(advisory.get("message", "")),
+                json.dumps(advisory.get("value", advisory.get("suites", ""))),
+            )
+        console.print(advisory_table)
+    else:
+        console.print("[green]No benchmark advisories triggered.[/green]")
+
+    suites = summary.get("suites", [])
+    if isinstance(suites, list):
+        suite_table = Table(title="Benchmark Suite Breakdown")
+        suite_table.add_column("Suite", style="cyan")
+        suite_table.add_column("Tests", justify="right")
+        suite_table.add_column("Processed", justify="right")
+        suite_table.add_column("Failed", justify="right")
+        suite_table.add_column("Duration (s)", justify="right")
+        suite_table.add_column("Regressions", justify="right")
+        suite_table.add_column("Improvements", justify="right")
+        suite_table.add_column("Unknown Rate (%)", justify="right")
+        for suite_row in suites:
+            if not isinstance(suite_row, dict):
+                continue
+            suite_table.add_row(
+                str(suite_row.get("suite_name", "unknown")),
+                str(suite_row.get("total_tests", 0)),
+                str(suite_row.get("processed_tests", 0)),
+                str(suite_row.get("failed_tests", 0)),
+                f"{float(suite_row.get('duration_seconds', 0.0)):.4f}",
+                str(suite_row.get("regressions", 0)),
+                str(suite_row.get("improvements", 0)),
+                f"{float(suite_row.get('unknown_rate_pct', 0.0)):.4f}",
+            )
+        console.print(suite_table)
+
+
+def _format_benchmark_markdown(summary: dict[str, Any]) -> str:
+    """Format benchmark summary as markdown."""
+    quality_pack = summary.get("quality_pack", {})
+    advisories = quality_pack.get("advisories", []) if isinstance(quality_pack, dict) else []
+    source_reports = summary.get("source_reports", [])
+
+    lines = [
+        "# Benchmark Summary",
+        "",
+        "- Mode: advisory-only",
+        f"- Reports: {summary.get('total_reports', 0)}",
+        f"- Total Tests: {summary.get('total_tests', 0)}",
+        f"- Processed Tests: {summary.get('total_processed_tests', 0)}",
+        f"- Failed Tests: {summary.get('total_failed_tests', 0)}",
+        f"- Total Duration (s): {float(summary.get('total_duration_seconds', 0.0)):.4f}",
+        f"- Avg Duration (s): {float(summary.get('avg_duration_seconds', 0.0)):.4f}",
+        f"- Throughput (tests/min): {float(summary.get('throughput_tests_per_min', 0.0)):.4f}",
+        f"- Regression Rate (%): {float(summary.get('regression_rate_pct', 0.0)):.4f}",
+        f"- Improvement Rate (%): {float(summary.get('improvement_rate_pct', 0.0)):.4f}",
+        f"- Semantic-Only Rate (%): {float(summary.get('semantic_only_rate_pct', 0.0)):.4f}",
+        f"- Unknown Rate (%): {float(summary.get('unknown_rate_pct', 0.0)):.4f}",
+    ]
+
+    critical = summary.get("critical_regressions", {})
+    if isinstance(critical, dict):
+        lines.extend(
+            [
+                "- Critical Regressions:",
+                f"  - safety_boundary: {critical.get('safety_boundary', 0)}",
+                f"  - hallucination_new: {critical.get('hallucination_new', 0)}",
+                f"  - format_change: {critical.get('format_change', 0)}",
+            ]
+        )
+
+    if isinstance(source_reports, list) and source_reports:
+        lines.append("")
+        lines.append("## Source Reports")
+        for path in source_reports:
+            lines.append(f"- `{path}`")
+
+    lines.append("")
+    lines.append("## Advisories")
+    if isinstance(advisories, list) and advisories:
+        for advisory in advisories:
+            if not isinstance(advisory, dict):
+                continue
+            code = str(advisory.get("code", "unknown"))
+            message = str(advisory.get("message", ""))
+            value = advisory.get("value", advisory.get("suites", ""))
+            lines.append(f"- `{code}`: {message} ({value})")
+    else:
+        lines.append("- none")
+
+    lines.extend(
+        [
+            "",
+            "## Suite Breakdown",
+            "",
+            "| Suite | Tests | Processed | Failed | Duration (s) | Regressions | Improvements | Unknown Rate (%) |",
+            "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
+        ]
+    )
+    suites = summary.get("suites", [])
+    if isinstance(suites, list):
+        for suite_row in suites:
+            if not isinstance(suite_row, dict):
+                continue
+            lines.append(
+                "| "
+                + f"{suite_row.get('suite_name', 'unknown')} | "
+                + f"{suite_row.get('total_tests', 0)} | "
+                + f"{suite_row.get('processed_tests', 0)} | "
+                + f"{suite_row.get('failed_tests', 0)} | "
+                + f"{float(suite_row.get('duration_seconds', 0.0)):.4f} | "
+                + f"{suite_row.get('regressions', 0)} | "
+                + f"{suite_row.get('improvements', 0)} | "
+                + f"{float(suite_row.get('unknown_rate_pct', 0.0)):.4f} |"
+            )
 
     return "\n".join(lines) + "\n"
 
