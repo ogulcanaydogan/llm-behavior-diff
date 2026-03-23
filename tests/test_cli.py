@@ -1220,6 +1220,188 @@ def test_report_gcs_export_connector_requires_bucket(tmp_path: Path) -> None:
     assert "export_gcs_bucket is required" in result.output
 
 
+def test_report_azure_blob_export_connector_success_csv_and_ndjson(
+    tmp_path: Path, monkeypatch
+) -> None:
+    report_path = tmp_path / "report_azure_blob_export.json"
+    captured_uploads: list[dict[str, object]] = []
+    captured_client: dict[str, object] = {}
+
+    report = BehaviorReport(
+        model_a="gpt-4o",
+        model_b="gpt-4.5",
+        suite_name="suite_azure_blob_export",
+        total_tests=1,
+        total_diffs=1,
+        regressions=0,
+        improvements=1,
+        duration_seconds=0.4,
+        diff_results=[
+            DiffResult(
+                test_id="az_001",
+                model_a="gpt-4o",
+                model_b="gpt-4.5",
+                response_a="a",
+                response_b="b",
+                is_semantically_same=False,
+                semantic_similarity=0.11,
+                behavior_category=BehaviorCategory.KNOWLEDGE_CHANGE,
+                is_regression=False,
+                is_improvement=True,
+                confidence=0.8,
+                explanation="improvement",
+            )
+        ],
+    )
+    report_path.write_text(json.dumps(report.model_dump(mode="json"), indent=2), encoding="utf-8")
+
+    class FakeBlobClient:
+        def __init__(self, container: str, blob: str):
+            self.container = container
+            self.blob = blob
+
+        def upload_blob(
+            self, data: bytes, overwrite: bool, content_type: str, timeout: float
+        ) -> None:
+            captured_uploads.append(
+                {
+                    "container": self.container,
+                    "blob": self.blob,
+                    "data": data,
+                    "overwrite": overwrite,
+                    "content_type": content_type,
+                    "timeout": timeout,
+                }
+            )
+
+    class FakeBlobServiceClient:
+        def get_blob_client(self, container: str, blob: str) -> FakeBlobClient:
+            return FakeBlobClient(container=container, blob=blob)
+
+    def fake_create_azure_blob_service_client(account_url: str, timeout_seconds: float):
+        captured_client["account_url"] = account_url
+        captured_client["timeout"] = timeout_seconds
+        return FakeBlobServiceClient()
+
+    monkeypatch.setattr(
+        "llm_behavior_diff.cli._create_azure_blob_service_client",
+        fake_create_azure_blob_service_client,
+    )
+
+    csv_path = tmp_path / "report_azure_blob_export.csv"
+    csv_result = CliRunner().invoke(
+        main,
+        [
+            "report",
+            str(report_path),
+            "--format",
+            "csv",
+            "--output",
+            str(csv_path),
+            "--export-connector",
+            "azure_blob",
+            "--export-az-account-url",
+            "https://myaccount.blob.core.windows.net",
+            "--export-az-container",
+            "llm-diff-exports",
+            "--export-az-prefix",
+            "team-a/exports",
+            "--export-timeout",
+            "9",
+        ],
+    )
+    assert csv_result.exit_code == 0
+    assert "External export delivered" in csv_result.output
+
+    ndjson_path = tmp_path / "report_azure_blob_export.ndjson"
+    ndjson_result = CliRunner().invoke(
+        main,
+        [
+            "report",
+            str(report_path),
+            "--format",
+            "ndjson",
+            "--output",
+            str(ndjson_path),
+            "--export-connector",
+            "azure_blob",
+            "--export-az-account-url",
+            "https://myaccount.blob.core.windows.net",
+            "--export-az-container",
+            "llm-diff-exports",
+            "--export-az-prefix",
+            "team-a/exports",
+            "--export-timeout",
+            "9",
+        ],
+    )
+    assert ndjson_result.exit_code == 0
+    assert "External export delivered" in ndjson_result.output
+
+    assert captured_client["account_url"] == "https://myaccount.blob.core.windows.net"
+    assert captured_client["timeout"] == 9.0
+    assert len(captured_uploads) == 2
+    assert captured_uploads[0]["container"] == "llm-diff-exports"
+    assert captured_uploads[0]["overwrite"] is True
+    assert captured_uploads[0]["content_type"] == "text/csv"
+    assert captured_uploads[1]["content_type"] == "application/x-ndjson"
+    assert str(captured_uploads[0]["blob"]).startswith("team-a/exports/suite_azure_blob_export/")
+    assert str(captured_uploads[1]["blob"]).endswith("/report.ndjson")
+    assert isinstance(captured_uploads[0]["data"], bytes)
+
+
+def test_report_azure_blob_export_connector_requires_fields(tmp_path: Path) -> None:
+    report_path = tmp_path / "report_azure_blob_export_missing_fields.json"
+    csv_path = tmp_path / "report_azure_blob_export_missing_fields.csv"
+    report = BehaviorReport(
+        model_a="gpt-4o",
+        model_b="gpt-4.5",
+        suite_name="suite_azure_blob_export",
+        total_tests=0,
+        total_diffs=0,
+        regressions=0,
+        improvements=0,
+        duration_seconds=0.0,
+    )
+    report_path.write_text(json.dumps(report.model_dump(mode="json"), indent=2), encoding="utf-8")
+
+    missing_account = CliRunner().invoke(
+        main,
+        [
+            "report",
+            str(report_path),
+            "--format",
+            "csv",
+            "--output",
+            str(csv_path),
+            "--export-connector",
+            "azure_blob",
+            "--export-az-container",
+            "llm-diff-exports",
+        ],
+    )
+    assert missing_account.exit_code == 1
+    assert "export_az_account_url is required" in missing_account.output
+
+    missing_container = CliRunner().invoke(
+        main,
+        [
+            "report",
+            str(report_path),
+            "--format",
+            "csv",
+            "--output",
+            str(csv_path),
+            "--export-connector",
+            "azure_blob",
+            "--export-az-account-url",
+            "https://myaccount.blob.core.windows.net",
+        ],
+    )
+    assert missing_container.exit_code == 1
+    assert "export_az_container is required" in missing_container.output
+
+
 def test_report_bigquery_export_connector_success(tmp_path: Path, monkeypatch) -> None:
     report_path = tmp_path / "report_bigquery_export.json"
     ndjson_path = tmp_path / "report_bigquery_export.ndjson"
@@ -1948,6 +2130,38 @@ def test_report_export_connector_rejects_table_format(tmp_path: Path, monkeypatc
     assert gcs_result.exit_code == 1
     assert "requires non-table report format output" in gcs_result.output
     assert called is False
+
+    azure_called = False
+
+    def fake_create_azure_blob_service_client(account_url: str, timeout_seconds: float):
+        nonlocal azure_called
+        azure_called = True
+        return object()
+
+    monkeypatch.setattr(
+        "llm_behavior_diff.cli._create_azure_blob_service_client",
+        fake_create_azure_blob_service_client,
+    )
+
+    azure_result = CliRunner().invoke(
+        main,
+        [
+            "report",
+            str(report_path),
+            "--format",
+            "table",
+            "--export-connector",
+            "azure_blob",
+            "--export-az-account-url",
+            "https://myaccount.blob.core.windows.net",
+            "--export-az-container",
+            "llm-diff-exports",
+        ],
+    )
+
+    assert azure_result.exit_code == 1
+    assert "requires non-table report format output" in azure_result.output
+    assert azure_called is False
 
 
 def test_compare_includes_significance_rows_when_diff_results_available(tmp_path: Path) -> None:

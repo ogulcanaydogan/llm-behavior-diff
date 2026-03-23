@@ -216,7 +216,9 @@ def run(
 )
 @click.option(
     "--export-connector",
-    type=click.Choice(["none", "http", "s3", "bigquery", "snowflake", "gcs", "redshift"]),
+    type=click.Choice(
+        ["none", "http", "s3", "bigquery", "snowflake", "gcs", "redshift", "azure_blob"]
+    ),
     default="none",
     show_default=True,
     help="Optional direct export connector for rendered report output",
@@ -271,6 +273,23 @@ def run(
     "--export-gcs-project",
     type=str,
     help="Optional GCS project override (ADC project used when omitted)",
+)
+@click.option(
+    "--export-az-account-url",
+    type=str,
+    help="Azure Blob account URL (required when --export-connector azure_blob)",
+)
+@click.option(
+    "--export-az-container",
+    type=str,
+    help="Azure Blob container name (required when --export-connector azure_blob)",
+)
+@click.option(
+    "--export-az-prefix",
+    type=str,
+    default="",
+    show_default=True,
+    help="Optional Azure Blob object prefix",
 )
 @click.option(
     "--export-bq-project",
@@ -390,6 +409,9 @@ def report(
     export_gcs_bucket: Optional[str],
     export_gcs_prefix: str,
     export_gcs_project: Optional[str],
+    export_az_account_url: Optional[str],
+    export_az_container: Optional[str],
+    export_az_prefix: str,
     export_bq_project: Optional[str],
     export_bq_dataset: Optional[str],
     export_bq_table: Optional[str],
@@ -466,6 +488,9 @@ def report(
                 gcs_bucket=export_gcs_bucket,
                 gcs_prefix=export_gcs_prefix,
                 gcs_project=export_gcs_project,
+                az_account_url=export_az_account_url,
+                az_container=export_az_container,
+                az_prefix=export_az_prefix,
                 bq_project=export_bq_project,
                 bq_dataset=export_bq_dataset,
                 bq_table=export_bq_table,
@@ -1082,6 +1107,26 @@ def _create_gcs_client(project: Optional[str], timeout_seconds: float) -> Any:
     return Client(**kwargs)
 
 
+def _build_azure_blob_object_key(
+    prefix: str, suite_name: str, report_id: str, report_format: str
+) -> str:
+    return _build_s3_object_key(
+        prefix=prefix,
+        suite_name=suite_name,
+        report_id=report_id,
+        report_format=report_format,
+    )
+
+
+def _create_azure_blob_service_client(account_url: str, timeout_seconds: float) -> Any:
+    from azure.identity import DefaultAzureCredential
+    from azure.storage.blob import BlobServiceClient
+
+    _ = timeout_seconds
+    credential = DefaultAzureCredential()
+    return BlobServiceClient(account_url=account_url, credential=credential)
+
+
 def _create_bigquery_client(project: str, location: Optional[str]) -> Any:
     from google.cloud import bigquery
 
@@ -1218,6 +1263,9 @@ def _dispatch_report_export(
     gcs_bucket: Optional[str],
     gcs_prefix: str,
     gcs_project: Optional[str],
+    az_account_url: Optional[str],
+    az_container: Optional[str],
+    az_prefix: str,
     bq_project: Optional[str],
     bq_dataset: Optional[str],
     bq_table: Optional[str],
@@ -1317,6 +1365,37 @@ def _dispatch_report_export(
         blob = bucket.blob(object_key)
         blob.upload_from_string(
             content,
+            content_type=_content_type_for_report_format(report_format),
+            timeout=timeout_seconds,
+        )
+        return
+
+    if normalized == "azure_blob":
+        if not az_account_url or not az_account_url.strip():
+            raise ValueError(
+                "export_az_account_url is required when export_connector is 'azure_blob'."
+            )
+        if not az_container or not az_container.strip():
+            raise ValueError(
+                "export_az_container is required when export_connector is 'azure_blob'."
+            )
+        object_key = _build_azure_blob_object_key(
+            prefix=az_prefix,
+            suite_name=report.suite_name,
+            report_id=str(report.id),
+            report_format=report_format,
+        )
+        service_client = _create_azure_blob_service_client(
+            account_url=az_account_url.strip(),
+            timeout_seconds=timeout_seconds,
+        )
+        blob_client = service_client.get_blob_client(
+            container=az_container.strip(),
+            blob=object_key,
+        )
+        blob_client.upload_blob(
+            content.encode("utf-8"),
+            overwrite=True,
             content_type=_content_type_for_report_format(report_format),
             timeout=timeout_seconds,
         )
@@ -1470,7 +1549,7 @@ def _dispatch_report_export(
 
     raise ValueError(
         f"Unsupported export connector '{connector}'. Supported: none, http, s3, gcs, "
-        "bigquery, snowflake, redshift."
+        "bigquery, snowflake, redshift, azure_blob."
     )
 
 

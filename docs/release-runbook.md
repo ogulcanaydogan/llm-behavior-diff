@@ -21,7 +21,7 @@ This runbook covers manual distribution and model-upgrade gating workflows.
 | --- | --- | --- |
 | `publish-pypi.yml` | OIDC trusted publishing OR `TEST_PYPI_API_TOKEN` / `PYPI_API_TOKEN` fallback | `id-token: write`, `contents: read` |
 | `docker-image.yml` | `GITHUB_TOKEN` (provided by Actions) | `packages: write`, `contents: read` |
-| `model-upgrade-regression.yml` | `OPENAI_API_KEY` and/or `ANTHROPIC_API_KEY` based on model ids; optional `EXPORT_CONNECTOR_API_KEY` for HTTP export dispatch; optional `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` / `AWS_SESSION_TOKEN` for S3 export dispatch; optional Google ADC credential setup for GCS/BigQuery export dispatch; optional `SNOWFLAKE_PASSWORD` for Snowflake export dispatch; optional `REDSHIFT_PASSWORD` for Redshift export dispatch (no extra secret needed for `factual_connector=wikipedia`) | `contents: read` |
+| `model-upgrade-regression.yml` | `OPENAI_API_KEY` and/or `ANTHROPIC_API_KEY` based on model ids; optional `EXPORT_CONNECTOR_API_KEY` for HTTP export dispatch; optional `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` / `AWS_SESSION_TOKEN` for S3 export dispatch; optional Google ADC credential setup for GCS/BigQuery export dispatch; optional Azure identity credential setup for Azure Blob export dispatch; optional `SNOWFLAKE_PASSWORD` for Snowflake export dispatch; optional `REDSHIFT_PASSWORD` for Redshift export dispatch (no extra secret needed for `factual_connector=wikipedia`) | `contents: read` |
 
 ## 1) Package Publish (Manual)
 
@@ -85,7 +85,7 @@ Inputs:
 - `factual_connector` (optional, default `none`): `none|wikipedia`
 - `factual_connector_timeout` (optional, default `8`)
 - `factual_connector_max_results` (optional, default `3`)
-- `export_connector` (optional, default `none`): `none|http|s3|gcs|bigquery|snowflake|redshift`
+- `export_connector` (optional, default `none`): `none|http|s3|gcs|bigquery|snowflake|redshift|azure_blob`
 - `export_connector_endpoint` (optional): required when `export_connector=http`
 - `export_connector_timeout` (optional, default `10`)
 - `export_s3_bucket` (optional): required when `export_connector=s3`
@@ -107,6 +107,12 @@ GCS workflow wiring (env-based, no new workflow input):
 - `EXPORT_GCS_BUCKET` repository variable is required when `export_connector=gcs`
 - `EXPORT_GCS_PREFIX` repository variable is optional (default empty)
 - `EXPORT_GCS_PROJECT` repository variable is optional (ADC project override)
+
+Azure Blob workflow wiring (env-based, no new workflow input):
+
+- `EXPORT_AZ_ACCOUNT_URL` repository variable is required when `export_connector=azure_blob`
+- `EXPORT_AZ_CONTAINER` repository variable is required when `export_connector=azure_blob`
+- `EXPORT_AZ_PREFIX` repository variable is optional (default empty)
 
 Redshift workflow wiring (env-based, no new workflow input):
 
@@ -167,6 +173,11 @@ Artifacts:
 - When `export_connector=gcs` is enabled, each generated export is also uploaded to
   the configured GCS bucket/prefix (`EXPORT_GCS_BUCKET` / `EXPORT_GCS_PREFIX` repo vars)
   with optional ADC project override via `EXPORT_GCS_PROJECT`.
+- When `export_connector=azure_blob` is enabled, each generated export is also uploaded to
+  Azure Blob (`EXPORT_AZ_ACCOUNT_URL`, `EXPORT_AZ_CONTAINER`, optional `EXPORT_AZ_PREFIX`)
+  using `DefaultAzureCredential`.
+- Azure Blob export follows fail-fast semantics: missing config, authentication errors,
+  or upload errors fail the command/workflow step.
 - When `export_connector=bigquery` is enabled, only NDJSON exports are uploaded to
   BigQuery (`export_bq_project.export_bq_dataset.export_bq_table`), while CSV/JUnit
   artifacts are still generated and uploaded as workflow artifacts.

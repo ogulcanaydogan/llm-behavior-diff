@@ -127,12 +127,16 @@ def test_model_upgrade_workflow_has_factual_connector_inputs_and_export_wiring()
     assert isinstance(options, list)
     assert "gcs" in options
     assert "redshift" in options
+    assert "azure_blob" in options
 
     job_env = workflow["jobs"]["regression-gate"]["env"]
     assert isinstance(job_env, dict)
     assert job_env.get("EXPORT_GCS_BUCKET") == "${{ vars.EXPORT_GCS_BUCKET }}"
     assert job_env.get("EXPORT_GCS_PREFIX") == "${{ vars.EXPORT_GCS_PREFIX }}"
     assert job_env.get("EXPORT_GCS_PROJECT") == "${{ vars.EXPORT_GCS_PROJECT }}"
+    assert job_env.get("EXPORT_AZ_ACCOUNT_URL") == "${{ vars.EXPORT_AZ_ACCOUNT_URL }}"
+    assert job_env.get("EXPORT_AZ_CONTAINER") == "${{ vars.EXPORT_AZ_CONTAINER }}"
+    assert job_env.get("EXPORT_AZ_PREFIX") == "${{ vars.EXPORT_AZ_PREFIX }}"
     assert job_env.get("EXPORT_RS_HOST") == "${{ vars.EXPORT_RS_HOST }}"
     assert job_env.get("EXPORT_RS_PORT") == "${{ vars.EXPORT_RS_PORT }}"
     assert job_env.get("EXPORT_RS_DATABASE") == "${{ vars.EXPORT_RS_DATABASE }}"
@@ -173,6 +177,9 @@ def test_model_upgrade_workflow_has_factual_connector_inputs_and_export_wiring()
     assert '--export-gcs-bucket "$EXPORT_GCS_BUCKET"' in run_script
     assert '--export-gcs-prefix "${EXPORT_GCS_PREFIX:-}"' in run_script
     assert '--export-gcs-project "$EXPORT_GCS_PROJECT"' in run_script
+    assert '--export-az-account-url "$EXPORT_AZ_ACCOUNT_URL"' in run_script
+    assert '--export-az-container "$EXPORT_AZ_CONTAINER"' in run_script
+    assert '--export-az-prefix "${EXPORT_AZ_PREFIX:-}"' in run_script
     assert '--export-bq-project "$EXPORT_BQ_PROJECT"' in run_script
     assert '--export-bq-dataset "$EXPORT_BQ_DATASET"' in run_script
     assert '--export-bq-table "$EXPORT_BQ_TABLE"' in run_script
@@ -196,10 +203,19 @@ def test_model_upgrade_workflow_has_factual_connector_inputs_and_export_wiring()
         "EXPORT_GCS_BUCKET repository variable is required when export_connector=gcs." in run_script
     )
     assert (
+        "EXPORT_AZ_ACCOUNT_URL repository variable is required when export_connector=azure_blob."
+        in run_script
+    )
+    assert (
+        "EXPORT_AZ_CONTAINER repository variable is required when export_connector=azure_blob."
+        in run_script
+    )
+    assert (
         "EXPORT_RS_HOST repository variable is required when export_connector=redshift."
         in run_script
     )
     assert 'elif [ "$EXPORT_CONNECTOR" = "gcs" ]; then' in run_script
+    assert 'elif [ "$EXPORT_CONNECTOR" = "azure_blob" ]; then' in run_script
     assert 'elif [ "$EXPORT_CONNECTOR" = "bigquery" ]; then' in run_script
     assert 'elif [ "$EXPORT_CONNECTOR" = "snowflake" ]; then' in run_script
     assert 'elif [ "$EXPORT_CONNECTOR" = "redshift" ]; then' in run_script
