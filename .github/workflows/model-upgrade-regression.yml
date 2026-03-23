@@ -252,7 +252,8 @@ permissions:
   contents: read
 
 concurrency:
-  group: model-upgrade-regression-${{ github.workflow }}-${{ github.ref }}
+  # Keep concurrency key event-safe across manual and reusable invocations.
+  group: model-upgrade-regression-${{ github.workflow }}-${{ github.ref || github.run_id }}
   cancel-in-progress: true
 
 env:
