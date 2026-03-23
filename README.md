@@ -9,6 +9,8 @@ Deterministic behavioral regression testing for LLM model upgrades.
 ![CLI](https://img.shields.io/badge/CLI-llm--diff-black)
 ![Method](https://img.shields.io/badge/Method-Deterministic%20%2B%20Bootstrap%20%2B%20Wilson%20%2B%20Permutation-blue)
 
+Current release baseline: **GA v1.0.0**.
+
 ## At A Glance
 
 | Capability | Status | Notes |

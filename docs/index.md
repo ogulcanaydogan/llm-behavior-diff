@@ -2,6 +2,8 @@
 
 `llm-behavior-diff` helps you compare two LLM versions on the same suite and detect behavioral regressions before production upgrades.
 
+Current release baseline: **GA v1.0.0**.
+
 ## Documentation Map
 
 - [Quick Start](quickstart.md)

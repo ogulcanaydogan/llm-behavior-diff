@@ -30,7 +30,7 @@ Workflow: `publish-pypi.yml`
 Inputs:
 
 - `target`: `testpypi` (default) or `pypi`
-- `version_tag` (optional): for tag/version consistency check (example: `v0.1.0`)
+- `version_tag` (optional): for tag/version consistency check (example: `v1.0.0`)
 
 Execution steps in workflow:
 

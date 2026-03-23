@@ -113,7 +113,7 @@ The `git diff` for LLM behavior. When you upgrade a model version, know exactly 
 - [x] Provider-specific external sink V6 (`azure_blob`, all non-table formats) for report command + workflow parity
 
 ## Current Status
-No open committed roadmap items at this time. Future work will be tracked as new phases when prioritized.
+No open committed roadmap items at this time. GA baseline is `v1.0.0`; future work will be tracked as new phases when prioritized.
 
 ## Success Metrics
 - Can compare any two LLM versions in under 30 minutes for 100 test cases

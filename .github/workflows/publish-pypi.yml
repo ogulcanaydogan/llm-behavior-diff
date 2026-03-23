@@ -12,7 +12,7 @@ on:
           - testpypi
           - pypi
       version_tag:
-        description: "Optional release tag to verify against pyproject version (example: v0.1.0)"
+        description: "Optional release tag to verify against pyproject version (example: v1.0.0)"
         required: false
         type: string
 
@@ -66,7 +66,7 @@ jobs:
               raise SystemExit(0)
 
           if not version_tag.startswith("v"):
-              raise SystemExit("version_tag must start with 'v', e.g. v0.1.0")
+              raise SystemExit("version_tag must start with 'v', e.g. v1.0.0")
 
           pyproject = pathlib.Path("pyproject.toml")
           with pyproject.open("rb") as f:
