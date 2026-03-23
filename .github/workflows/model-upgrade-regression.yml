@@ -72,6 +72,7 @@ on:
           - none
           - http
           - s3
+          - gcs
           - bigquery
           - snowflake
       export_connector_endpoint:
@@ -269,6 +270,9 @@ jobs:
       EXPORT_CONNECTOR_API_KEY: ${{ secrets.EXPORT_CONNECTOR_API_KEY }}
       EXPORT_S3_BUCKET: ${{ inputs.export_s3_bucket }}
       EXPORT_S3_PREFIX: ${{ inputs.export_s3_prefix }}
+      EXPORT_GCS_BUCKET: ${{ vars.EXPORT_GCS_BUCKET }}
+      EXPORT_GCS_PREFIX: ${{ vars.EXPORT_GCS_PREFIX }}
+      EXPORT_GCS_PROJECT: ${{ vars.EXPORT_GCS_PROJECT }}
       EXPORT_BQ_PROJECT: ${{ inputs.export_bq_project }}
       EXPORT_BQ_DATASET: ${{ inputs.export_bq_dataset }}
       EXPORT_BQ_TABLE: ${{ inputs.export_bq_table }}
@@ -376,6 +380,19 @@ jobs:
               fi
               connector_args+=(--export-s3-bucket "$EXPORT_S3_BUCKET")
               connector_args+=(--export-s3-prefix "$EXPORT_S3_PREFIX")
+              export_args_csv=("${connector_args[@]}")
+              export_args_ndjson=("${connector_args[@]}")
+              export_args_junit=("${connector_args[@]}")
+            elif [ "$EXPORT_CONNECTOR" = "gcs" ]; then
+              if [ -z "$EXPORT_GCS_BUCKET" ]; then
+                echo "EXPORT_GCS_BUCKET repository variable is required when export_connector=gcs."
+                exit 1
+              fi
+              connector_args+=(--export-gcs-bucket "$EXPORT_GCS_BUCKET")
+              connector_args+=(--export-gcs-prefix "${EXPORT_GCS_PREFIX:-}")
+              if [ -n "${EXPORT_GCS_PROJECT:-}" ]; then
+                connector_args+=(--export-gcs-project "$EXPORT_GCS_PROJECT")
+              fi
               export_args_csv=("${connector_args[@]}")
               export_args_ndjson=("${connector_args[@]}")
               export_args_junit=("${connector_args[@]}")

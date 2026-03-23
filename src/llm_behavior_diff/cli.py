@@ -216,7 +216,7 @@ def run(
 )
 @click.option(
     "--export-connector",
-    type=click.Choice(["none", "http", "s3", "bigquery", "snowflake"]),
+    type=click.Choice(["none", "http", "s3", "bigquery", "snowflake", "gcs"]),
     default="none",
     show_default=True,
     help="Optional direct export connector for rendered report output",
@@ -254,6 +254,23 @@ def run(
     "--export-s3-region",
     type=str,
     help="Optional S3 region override (uses AWS default chain when omitted)",
+)
+@click.option(
+    "--export-gcs-bucket",
+    type=str,
+    help="GCS bucket name (required when --export-connector gcs)",
+)
+@click.option(
+    "--export-gcs-prefix",
+    type=str,
+    default="",
+    show_default=True,
+    help="Optional GCS object prefix",
+)
+@click.option(
+    "--export-gcs-project",
+    type=str,
+    help="Optional GCS project override (ADC project used when omitted)",
 )
 @click.option(
     "--export-bq-project",
@@ -326,6 +343,9 @@ def report(
     export_s3_bucket: Optional[str],
     export_s3_prefix: str,
     export_s3_region: Optional[str],
+    export_gcs_bucket: Optional[str],
+    export_gcs_prefix: str,
+    export_gcs_project: Optional[str],
     export_bq_project: Optional[str],
     export_bq_dataset: Optional[str],
     export_bq_table: Optional[str],
@@ -391,6 +411,9 @@ def report(
                 s3_bucket=export_s3_bucket,
                 s3_prefix=export_s3_prefix,
                 s3_region=export_s3_region,
+                gcs_bucket=export_gcs_bucket,
+                gcs_prefix=export_gcs_prefix,
+                gcs_project=export_gcs_project,
                 bq_project=export_bq_project,
                 bq_dataset=export_bq_dataset,
                 bq_table=export_bq_table,
@@ -973,6 +996,25 @@ def _create_s3_client(region: Optional[str], timeout_seconds: float) -> Any:
     return boto3.client("s3", **kwargs)
 
 
+def _build_gcs_object_key(prefix: str, suite_name: str, report_id: str, report_format: str) -> str:
+    return _build_s3_object_key(
+        prefix=prefix,
+        suite_name=suite_name,
+        report_id=report_id,
+        report_format=report_format,
+    )
+
+
+def _create_gcs_client(project: Optional[str], timeout_seconds: float) -> Any:
+    from google.cloud import storage
+
+    _ = timeout_seconds
+    kwargs: dict[str, Any] = {}
+    if project and project.strip():
+        kwargs["project"] = project.strip()
+    return storage.Client(**kwargs)
+
+
 def _create_bigquery_client(project: str, location: Optional[str]) -> Any:
     from google.cloud import bigquery
 
@@ -1070,6 +1112,9 @@ def _dispatch_report_export(
     s3_bucket: Optional[str],
     s3_prefix: str,
     s3_region: Optional[str],
+    gcs_bucket: Optional[str],
+    gcs_prefix: str,
+    gcs_project: Optional[str],
     bq_project: Optional[str],
     bq_dataset: Optional[str],
     bq_table: Optional[str],
@@ -1144,6 +1189,25 @@ def _dispatch_report_export(
             Key=object_key,
             Body=content.encode("utf-8"),
             ContentType=_content_type_for_report_format(report_format),
+        )
+        return
+
+    if normalized == "gcs":
+        if not gcs_bucket or not gcs_bucket.strip():
+            raise ValueError("export_gcs_bucket is required when export_connector is 'gcs'.")
+        object_key = _build_gcs_object_key(
+            prefix=gcs_prefix,
+            suite_name=report.suite_name,
+            report_id=str(report.id),
+            report_format=report_format,
+        )
+        client = _create_gcs_client(project=gcs_project, timeout_seconds=timeout_seconds)
+        bucket = client.bucket(gcs_bucket.strip())
+        blob = bucket.blob(object_key)
+        blob.upload_from_string(
+            content,
+            content_type=_content_type_for_report_format(report_format),
+            timeout=timeout_seconds,
         )
         return
 
@@ -1236,7 +1300,8 @@ def _dispatch_report_export(
         return
 
     raise ValueError(
-        f"Unsupported export connector '{connector}'. Supported: none, http, s3, bigquery, snowflake."
+        f"Unsupported export connector '{connector}'. Supported: none, http, s3, gcs, "
+        "bigquery, snowflake."
     )
 
 
