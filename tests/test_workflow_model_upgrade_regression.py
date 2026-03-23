@@ -45,6 +45,13 @@ def test_model_upgrade_workflow_has_factual_connector_inputs_and_export_wiring()
         "export_bq_dataset",
         "export_bq_table",
         "export_bq_location",
+        "export_sf_account",
+        "export_sf_user",
+        "export_sf_role",
+        "export_sf_warehouse",
+        "export_sf_database",
+        "export_sf_schema",
+        "export_sf_table",
     ):
         _assert_input_present(dispatch_inputs, key)
         _assert_input_present(call_inputs, key)
@@ -82,7 +89,16 @@ def test_model_upgrade_workflow_has_factual_connector_inputs_and_export_wiring()
     assert '--export-bq-dataset "$EXPORT_BQ_DATASET"' in run_script
     assert '--export-bq-table "$EXPORT_BQ_TABLE"' in run_script
     assert '--export-bq-location "$EXPORT_BQ_LOCATION"' in run_script
+    assert '--export-sf-account "$EXPORT_SF_ACCOUNT"' in run_script
+    assert '--export-sf-user "$EXPORT_SF_USER"' in run_script
+    assert '--export-sf-warehouse "$EXPORT_SF_WAREHOUSE"' in run_script
+    assert '--export-sf-database "$EXPORT_SF_DATABASE"' in run_script
+    assert '--export-sf-schema "$EXPORT_SF_SCHEMA"' in run_script
+    assert '--export-sf-table "$EXPORT_SF_TABLE"' in run_script
+    assert '--export-sf-role "$EXPORT_SF_ROLE"' in run_script
+    assert "SNOWFLAKE_PASSWORD secret is required when export_connector=snowflake." in run_script
     assert 'elif [ "$EXPORT_CONNECTOR" = "bigquery" ]; then' in run_script
+    assert 'elif [ "$EXPORT_CONNECTOR" = "snowflake" ]; then' in run_script
 
     export_step = next(
         step

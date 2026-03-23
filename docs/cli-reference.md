@@ -89,6 +89,14 @@ llm-diff report report.json --format ndjson -o report.ndjson \
   --export-bq-dataset llm_diff \
   --export-bq-table diff_rows \
   --export-bq-location EU
+llm-diff report report.json --format ndjson -o report.ndjson \
+  --export-connector snowflake \
+  --export-sf-account xy12345.eu-west-1 \
+  --export-sf-user svc_llm_diff \
+  --export-sf-warehouse COMPUTE_WH \
+  --export-sf-database ANALYTICS_DB \
+  --export-sf-schema LLM_DIFF \
+  --export-sf-table DIFF_ROWS
 ```
 
 Options:
@@ -96,7 +104,7 @@ Options:
 - `report_file` (required): JSON report path
 - `--format`: `table` (default), `json`, `html`, `markdown`, `csv`, `ndjson`, `junit`
 - `--output`, `-o`: output file path (stdout when omitted)
-- `--export-connector`: `none` (default), `http`, `s3`, or `bigquery`
+- `--export-connector`: `none` (default), `http`, `s3`, `bigquery`, or `snowflake`
 - `--export-endpoint`: required when `--export-connector=http`
 - `--export-timeout`: connector timeout seconds (default `10.0`)
 - `--export-api-key`: optional explicit API key (fallback: `LLM_DIFF_EXPORT_API_KEY`)
@@ -107,6 +115,14 @@ Options:
 - `--export-bq-dataset`: required when `--export-connector=bigquery`
 - `--export-bq-table`: required when `--export-connector=bigquery`
 - `--export-bq-location`: optional BigQuery location override
+- `--export-sf-account`: required when `--export-connector=snowflake`
+- `--export-sf-user`: required when `--export-connector=snowflake`
+- `--export-sf-password`: optional explicit Snowflake password (fallback: `LLM_DIFF_EXPORT_SF_PASSWORD`)
+- `--export-sf-role`: optional Snowflake role
+- `--export-sf-warehouse`: required when `--export-connector=snowflake`
+- `--export-sf-database`: required when `--export-connector=snowflake`
+- `--export-sf-schema`: required when `--export-connector=snowflake`
+- `--export-sf-table`: required when `--export-connector=snowflake`
 
 `report` table/markdown output includes run-level bootstrap + Wilson confidence intervals when
 `metadata.significance` is present.
@@ -119,9 +135,10 @@ Export format behavior:
 - `csv`: one row per `diff_result`, metric-focused columns, no raw model responses.
 - `ndjson`: one JSON object per `diff_result`, includes run context + comparator metadata + raw responses.
 - `junit`: one `<testcase>` per `diff_result`; `is_regression=true` maps to `<failure>`, others pass with status in `system-out`.
-- direct connector dispatch is opt-in and supports `http`, `s3`, and `bigquery`.
+- direct connector dispatch is opt-in and supports `http`, `s3`, `bigquery`, and `snowflake`.
 - connector dispatch requires non-`table` formats.
 - `bigquery` dispatch requires `--format ndjson` and fails fast on insert errors.
+- `snowflake` dispatch requires `--format ndjson` and fails fast on insert errors.
 
 ## `llm-diff compare`
 

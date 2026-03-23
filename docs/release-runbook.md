@@ -21,7 +21,7 @@ This runbook covers manual distribution and model-upgrade gating workflows.
 | --- | --- | --- |
 | `publish-pypi.yml` | OIDC trusted publishing OR `TEST_PYPI_API_TOKEN` / `PYPI_API_TOKEN` fallback | `id-token: write`, `contents: read` |
 | `docker-image.yml` | `GITHUB_TOKEN` (provided by Actions) | `packages: write`, `contents: read` |
-| `model-upgrade-regression.yml` | `OPENAI_API_KEY` and/or `ANTHROPIC_API_KEY` based on model ids; optional `EXPORT_CONNECTOR_API_KEY` for HTTP export dispatch; optional `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` / `AWS_SESSION_TOKEN` for S3 export dispatch; optional Google ADC credential setup for BigQuery export dispatch (no extra secret needed for `factual_connector=wikipedia`) | `contents: read` |
+| `model-upgrade-regression.yml` | `OPENAI_API_KEY` and/or `ANTHROPIC_API_KEY` based on model ids; optional `EXPORT_CONNECTOR_API_KEY` for HTTP export dispatch; optional `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` / `AWS_SESSION_TOKEN` for S3 export dispatch; optional Google ADC credential setup for BigQuery export dispatch; optional `SNOWFLAKE_PASSWORD` for Snowflake export dispatch (no extra secret needed for `factual_connector=wikipedia`) | `contents: read` |
 
 ## 1) Package Publish (Manual)
 
@@ -85,7 +85,7 @@ Inputs:
 - `factual_connector` (optional, default `none`): `none|wikipedia`
 - `factual_connector_timeout` (optional, default `8`)
 - `factual_connector_max_results` (optional, default `3`)
-- `export_connector` (optional, default `none`): `none|http|s3|bigquery`
+- `export_connector` (optional, default `none`): `none|http|s3|bigquery|snowflake`
 - `export_connector_endpoint` (optional): required when `export_connector=http`
 - `export_connector_timeout` (optional, default `10`)
 - `export_s3_bucket` (optional): required when `export_connector=s3`
@@ -95,6 +95,13 @@ Inputs:
 - `export_bq_dataset` (optional): required when `export_connector=bigquery`
 - `export_bq_table` (optional): required when `export_connector=bigquery`
 - `export_bq_location` (optional)
+- `export_sf_account` (optional): required when `export_connector=snowflake`
+- `export_sf_user` (optional): required when `export_connector=snowflake`
+- `export_sf_role` (optional)
+- `export_sf_warehouse` (optional): required when `export_connector=snowflake`
+- `export_sf_database` (optional): required when `export_connector=snowflake`
+- `export_sf_schema` (optional): required when `export_connector=snowflake`
+- `export_sf_table` (optional): required when `export_connector=snowflake`
 
 Default suite set when `suite_list` is empty:
 
@@ -145,6 +152,11 @@ Artifacts:
   BigQuery (`export_bq_project.export_bq_dataset.export_bq_table`), while CSV/JUnit
   artifacts are still generated and uploaded as workflow artifacts.
 - BigQuery export follows fail-fast semantics: missing config, authentication errors,
+  or row insert errors fail the command/workflow step.
+- When `export_connector=snowflake` is enabled, only NDJSON exports are uploaded to
+  Snowflake (`export_sf_database.export_sf_schema.export_sf_table`) with credentials
+  from `--export-sf-password` or `LLM_DIFF_EXPORT_SF_PASSWORD` (workflow: `SNOWFLAKE_PASSWORD` secret).
+- Snowflake export follows fail-fast semantics: missing config, authentication errors,
   or row insert errors fail the command/workflow step.
 - When external factual connector is enabled, reports include metadata-only
   `factual_external` comparator payloads and run-level `factual_external_summary`.

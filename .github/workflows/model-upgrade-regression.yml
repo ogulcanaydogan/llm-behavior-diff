@@ -72,6 +72,7 @@ on:
           - http
           - s3
           - bigquery
+          - snowflake
       export_connector_endpoint:
         description: "Optional export connector endpoint URL (required for export_connector=http)"
         required: false
@@ -108,6 +109,34 @@ on:
         type: string
       export_bq_location:
         description: "Optional BigQuery location override"
+        required: false
+        type: string
+      export_sf_account:
+        description: "Optional Snowflake account (required for export_connector=snowflake)"
+        required: false
+        type: string
+      export_sf_user:
+        description: "Optional Snowflake user (required for export_connector=snowflake)"
+        required: false
+        type: string
+      export_sf_role:
+        description: "Optional Snowflake role"
+        required: false
+        type: string
+      export_sf_warehouse:
+        description: "Optional Snowflake warehouse (required for export_connector=snowflake)"
+        required: false
+        type: string
+      export_sf_database:
+        description: "Optional Snowflake database (required for export_connector=snowflake)"
+        required: false
+        type: string
+      export_sf_schema:
+        description: "Optional Snowflake schema (required for export_connector=snowflake)"
+        required: false
+        type: string
+      export_sf_table:
+        description: "Optional Snowflake table (required for export_connector=snowflake)"
         required: false
         type: string
 
@@ -182,6 +211,27 @@ on:
       export_bq_location:
         required: false
         type: string
+      export_sf_account:
+        required: false
+        type: string
+      export_sf_user:
+        required: false
+        type: string
+      export_sf_role:
+        required: false
+        type: string
+      export_sf_warehouse:
+        required: false
+        type: string
+      export_sf_database:
+        required: false
+        type: string
+      export_sf_schema:
+        required: false
+        type: string
+      export_sf_table:
+        required: false
+        type: string
     secrets:
       OPENAI_API_KEY:
         required: false
@@ -194,6 +244,8 @@ on:
       AWS_SECRET_ACCESS_KEY:
         required: false
       AWS_SESSION_TOKEN:
+        required: false
+      SNOWFLAKE_PASSWORD:
         required: false
 
 permissions:
@@ -234,9 +286,17 @@ jobs:
       EXPORT_BQ_DATASET: ${{ inputs.export_bq_dataset }}
       EXPORT_BQ_TABLE: ${{ inputs.export_bq_table }}
       EXPORT_BQ_LOCATION: ${{ inputs.export_bq_location }}
+      EXPORT_SF_ACCOUNT: ${{ inputs.export_sf_account }}
+      EXPORT_SF_USER: ${{ inputs.export_sf_user }}
+      EXPORT_SF_ROLE: ${{ inputs.export_sf_role }}
+      EXPORT_SF_WAREHOUSE: ${{ inputs.export_sf_warehouse }}
+      EXPORT_SF_DATABASE: ${{ inputs.export_sf_database }}
+      EXPORT_SF_SCHEMA: ${{ inputs.export_sf_schema }}
+      EXPORT_SF_TABLE: ${{ inputs.export_sf_table }}
       AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
       AWS_SESSION_TOKEN: ${{ secrets.AWS_SESSION_TOKEN }}
+      LLM_DIFF_EXPORT_SF_PASSWORD: ${{ secrets.SNOWFLAKE_PASSWORD }}
 
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
@@ -354,6 +414,45 @@ jobs:
               connector_args+=(--export-bq-table "$EXPORT_BQ_TABLE")
               if [ -n "$EXPORT_BQ_LOCATION" ]; then
                 connector_args+=(--export-bq-location "$EXPORT_BQ_LOCATION")
+              fi
+              export_args_ndjson=("${connector_args[@]}")
+            elif [ "$EXPORT_CONNECTOR" = "snowflake" ]; then
+              if [ -z "$EXPORT_SF_ACCOUNT" ]; then
+                echo "export_sf_account is required when export_connector=snowflake."
+                exit 1
+              fi
+              if [ -z "$EXPORT_SF_USER" ]; then
+                echo "export_sf_user is required when export_connector=snowflake."
+                exit 1
+              fi
+              if [ -z "$LLM_DIFF_EXPORT_SF_PASSWORD" ]; then
+                echo "SNOWFLAKE_PASSWORD secret is required when export_connector=snowflake."
+                exit 1
+              fi
+              if [ -z "$EXPORT_SF_WAREHOUSE" ]; then
+                echo "export_sf_warehouse is required when export_connector=snowflake."
+                exit 1
+              fi
+              if [ -z "$EXPORT_SF_DATABASE" ]; then
+                echo "export_sf_database is required when export_connector=snowflake."
+                exit 1
+              fi
+              if [ -z "$EXPORT_SF_SCHEMA" ]; then
+                echo "export_sf_schema is required when export_connector=snowflake."
+                exit 1
+              fi
+              if [ -z "$EXPORT_SF_TABLE" ]; then
+                echo "export_sf_table is required when export_connector=snowflake."
+                exit 1
+              fi
+              connector_args+=(--export-sf-account "$EXPORT_SF_ACCOUNT")
+              connector_args+=(--export-sf-user "$EXPORT_SF_USER")
+              connector_args+=(--export-sf-warehouse "$EXPORT_SF_WAREHOUSE")
+              connector_args+=(--export-sf-database "$EXPORT_SF_DATABASE")
+              connector_args+=(--export-sf-schema "$EXPORT_SF_SCHEMA")
+              connector_args+=(--export-sf-table "$EXPORT_SF_TABLE")
+              if [ -n "$EXPORT_SF_ROLE" ]; then
+                connector_args+=(--export-sf-role "$EXPORT_SF_ROLE")
               fi
               export_args_ndjson=("${connector_args[@]}")
             else
