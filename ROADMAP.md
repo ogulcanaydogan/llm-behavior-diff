@@ -112,6 +112,11 @@ The `git diff` for LLM behavior. When you upgrade a model version, know exactly 
 - [x] Provider-specific external sink V5 (`redshift`, NDJSON-only) for report command + workflow parity
 - [x] Provider-specific external sink V6 (`azure_blob`, all non-table formats) for report command + workflow parity
 
+## Phase 14: Benchmark Quality Pack (Completed)
+- [x] Artifact-first `benchmark` command for report JSON aggregation
+- [x] Fixed advisory quality checks (failed tests, critical regressions, unknown-rate, runtime outliers)
+- [x] Model-upgrade workflow parity with always-on benchmark artifact outputs
+
 ## Current Status
 No open committed roadmap items at this time. GA baseline is `v1.0.0`; future work will be tracked as new phases when prioritized.
 

@@ -31,6 +31,7 @@
    - built-in packs: `core`, `risk_averse`, `velocity`
    - optional custom YAML policy file (`version: v1`, metadata-only config hook)
    - same resolution path used in CLI and CI workflow gate.
+9. Optional benchmark summaries aggregate report artifacts into advisory-only quality signals.
 
 ## Core Modules
 
@@ -39,6 +40,7 @@
 - `comparators/`: deterministic scoring and decision outputs
 - `aggregator.py`: final category/regression/improvement decision point
 - `policy.py`: deterministic risk-tier gate evaluation, policy-pack resolution, custom YAML validation
+- `benchmark.py`: artifact-first benchmark aggregation and fixed advisory quality pack
 - `schema.py`: report/test/diff data models
 - `cli.py`: command surface and formatting
 
@@ -74,3 +76,4 @@
 - `compare` renders run-to-run metric deltas and optional markdown output.
 - `compare` also computes bootstrap delta CI + permutation p-value from per-test outcomes when both reports include `diff_results`.
 - `gate` evaluates one JSON report with selected tier + pack/file policy and returns CI-friendly exit codes.
+- `benchmark` evaluates one or more JSON reports and returns advisory-only quality summaries (table/json/markdown).
