@@ -3,6 +3,7 @@ name: Model Upgrade Regression Gate
 on:
   workflow_dispatch:
     inputs:
+      # Keep workflow_dispatch input count <= 25 (GitHub Actions limit).
       model_a:
         description: "Baseline model (A)"
         required: true
@@ -91,10 +92,6 @@ on:
         required: false
         default: ""
         type: string
-      export_s3_region:
-        description: "Optional S3 region override"
-        required: false
-        type: string
       export_bq_project:
         description: "Optional BigQuery project id (required for export_connector=bigquery)"
         required: false
@@ -117,10 +114,6 @@ on:
         type: string
       export_sf_user:
         description: "Optional Snowflake user (required for export_connector=snowflake)"
-        required: false
-        type: string
-      export_sf_role:
-        description: "Optional Snowflake role"
         required: false
         type: string
       export_sf_warehouse:
@@ -196,9 +189,6 @@ on:
         required: false
         type: string
         default: ""
-      export_s3_region:
-        required: false
-        type: string
       export_bq_project:
         required: false
         type: string
@@ -215,9 +205,6 @@ on:
         required: false
         type: string
       export_sf_user:
-        required: false
-        type: string
-      export_sf_role:
         required: false
         type: string
       export_sf_warehouse:
@@ -282,14 +269,12 @@ jobs:
       EXPORT_CONNECTOR_API_KEY: ${{ secrets.EXPORT_CONNECTOR_API_KEY }}
       EXPORT_S3_BUCKET: ${{ inputs.export_s3_bucket }}
       EXPORT_S3_PREFIX: ${{ inputs.export_s3_prefix }}
-      EXPORT_S3_REGION: ${{ inputs.export_s3_region }}
       EXPORT_BQ_PROJECT: ${{ inputs.export_bq_project }}
       EXPORT_BQ_DATASET: ${{ inputs.export_bq_dataset }}
       EXPORT_BQ_TABLE: ${{ inputs.export_bq_table }}
       EXPORT_BQ_LOCATION: ${{ inputs.export_bq_location }}
       EXPORT_SF_ACCOUNT: ${{ inputs.export_sf_account }}
       EXPORT_SF_USER: ${{ inputs.export_sf_user }}
-      EXPORT_SF_ROLE: ${{ inputs.export_sf_role }}
       EXPORT_SF_WAREHOUSE: ${{ inputs.export_sf_warehouse }}
       EXPORT_SF_DATABASE: ${{ inputs.export_sf_database }}
       EXPORT_SF_SCHEMA: ${{ inputs.export_sf_schema }}
@@ -391,9 +376,6 @@ jobs:
               fi
               connector_args+=(--export-s3-bucket "$EXPORT_S3_BUCKET")
               connector_args+=(--export-s3-prefix "$EXPORT_S3_PREFIX")
-              if [ -n "$EXPORT_S3_REGION" ]; then
-                connector_args+=(--export-s3-region "$EXPORT_S3_REGION")
-              fi
               export_args_csv=("${connector_args[@]}")
               export_args_ndjson=("${connector_args[@]}")
               export_args_junit=("${connector_args[@]}")
@@ -452,9 +434,6 @@ jobs:
               connector_args+=(--export-sf-database "$EXPORT_SF_DATABASE")
               connector_args+=(--export-sf-schema "$EXPORT_SF_SCHEMA")
               connector_args+=(--export-sf-table "$EXPORT_SF_TABLE")
-              if [ -n "$EXPORT_SF_ROLE" ]; then
-                connector_args+=(--export-sf-role "$EXPORT_SF_ROLE")
-              fi
               export_args_ndjson=("${connector_args[@]}")
             else
               echo "Unsupported export_connector: $EXPORT_CONNECTOR"
