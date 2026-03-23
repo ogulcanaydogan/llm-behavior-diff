@@ -21,7 +21,7 @@ This runbook covers manual distribution and model-upgrade gating workflows.
 | --- | --- | --- |
 | `publish-pypi.yml` | OIDC trusted publishing OR `TEST_PYPI_API_TOKEN` / `PYPI_API_TOKEN` fallback | `id-token: write`, `contents: read` |
 | `docker-image.yml` | `GITHUB_TOKEN` (provided by Actions) | `packages: write`, `contents: read` |
-| `model-upgrade-regression.yml` | `OPENAI_API_KEY` and/or `ANTHROPIC_API_KEY` based on model ids; optional `EXPORT_CONNECTOR_API_KEY` for HTTP export dispatch; optional `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` / `AWS_SESSION_TOKEN` for S3 export dispatch; optional Google ADC credential setup for GCS/BigQuery export dispatch; optional `SNOWFLAKE_PASSWORD` for Snowflake export dispatch (no extra secret needed for `factual_connector=wikipedia`) | `contents: read` |
+| `model-upgrade-regression.yml` | `OPENAI_API_KEY` and/or `ANTHROPIC_API_KEY` based on model ids; optional `EXPORT_CONNECTOR_API_KEY` for HTTP export dispatch; optional `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` / `AWS_SESSION_TOKEN` for S3 export dispatch; optional Google ADC credential setup for GCS/BigQuery export dispatch; optional `SNOWFLAKE_PASSWORD` for Snowflake export dispatch; optional `REDSHIFT_PASSWORD` for Redshift export dispatch (no extra secret needed for `factual_connector=wikipedia`) | `contents: read` |
 
 ## 1) Package Publish (Manual)
 
@@ -85,7 +85,7 @@ Inputs:
 - `factual_connector` (optional, default `none`): `none|wikipedia`
 - `factual_connector_timeout` (optional, default `8`)
 - `factual_connector_max_results` (optional, default `3`)
-- `export_connector` (optional, default `none`): `none|http|s3|gcs|bigquery|snowflake`
+- `export_connector` (optional, default `none`): `none|http|s3|gcs|bigquery|snowflake|redshift`
 - `export_connector_endpoint` (optional): required when `export_connector=http`
 - `export_connector_timeout` (optional, default `10`)
 - `export_s3_bucket` (optional): required when `export_connector=s3`
@@ -107,6 +107,17 @@ GCS workflow wiring (env-based, no new workflow input):
 - `EXPORT_GCS_BUCKET` repository variable is required when `export_connector=gcs`
 - `EXPORT_GCS_PREFIX` repository variable is optional (default empty)
 - `EXPORT_GCS_PROJECT` repository variable is optional (ADC project override)
+
+Redshift workflow wiring (env-based, no new workflow input):
+
+- `EXPORT_RS_HOST` repository variable is required when `export_connector=redshift`
+- `EXPORT_RS_PORT` repository variable is optional (default `5439`)
+- `EXPORT_RS_DATABASE` repository variable is required when `export_connector=redshift`
+- `EXPORT_RS_USER` repository variable is required when `export_connector=redshift`
+- `EXPORT_RS_SCHEMA` repository variable is required when `export_connector=redshift`
+- `EXPORT_RS_TABLE` repository variable is required when `export_connector=redshift`
+- `EXPORT_RS_SSLMODE` repository variable is optional (default `require`)
+- `REDSHIFT_PASSWORD` secret is required when `export_connector=redshift`
 
 Default suite set when `suite_list` is empty:
 
@@ -165,6 +176,11 @@ Artifacts:
   Snowflake (`export_sf_database.export_sf_schema.export_sf_table`) with credentials
   from `--export-sf-password` or `LLM_DIFF_EXPORT_SF_PASSWORD` (workflow: `SNOWFLAKE_PASSWORD` secret).
 - Snowflake export follows fail-fast semantics: missing config, authentication errors,
+  or row insert errors fail the command/workflow step.
+- When `export_connector=redshift` is enabled, only NDJSON exports are uploaded to
+  Redshift (`export_rs_schema.export_rs_table`) using connection fields from repo vars and
+  password from `--export-rs-password` or `LLM_DIFF_EXPORT_RS_PASSWORD` (workflow: `REDSHIFT_PASSWORD` secret).
+- Redshift export follows fail-fast semantics: missing config, authentication errors,
   or row insert errors fail the command/workflow step.
 - When external factual connector is enabled, reports include metadata-only
   `factual_external` comparator payloads and run-level `factual_external_summary`.
