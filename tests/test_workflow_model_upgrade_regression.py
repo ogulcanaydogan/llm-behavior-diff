@@ -119,6 +119,18 @@ def test_model_upgrade_workflow_has_factual_connector_inputs_and_export_wiring()
         _assert_input_present(dispatch_inputs, key)
         _assert_input_present(call_inputs, key)
 
+    export_connector = dispatch_inputs["export_connector"]
+    assert isinstance(export_connector, dict)
+    options = export_connector.get("options")
+    assert isinstance(options, list)
+    assert "gcs" in options
+
+    job_env = workflow["jobs"]["regression-gate"]["env"]
+    assert isinstance(job_env, dict)
+    assert job_env.get("EXPORT_GCS_BUCKET") == "${{ vars.EXPORT_GCS_BUCKET }}"
+    assert job_env.get("EXPORT_GCS_PREFIX") == "${{ vars.EXPORT_GCS_PREFIX }}"
+    assert job_env.get("EXPORT_GCS_PROJECT") == "${{ vars.EXPORT_GCS_PROJECT }}"
+
     steps = workflow["jobs"]["regression-gate"]["steps"]
     assert isinstance(steps, list)
     run_step = next(
@@ -147,6 +159,9 @@ def test_model_upgrade_workflow_has_factual_connector_inputs_and_export_wiring()
     assert '--export-endpoint "$EXPORT_CONNECTOR_ENDPOINT"' in run_script
     assert '--export-s3-bucket "$EXPORT_S3_BUCKET"' in run_script
     assert '--export-s3-prefix "$EXPORT_S3_PREFIX"' in run_script
+    assert '--export-gcs-bucket "$EXPORT_GCS_BUCKET"' in run_script
+    assert '--export-gcs-prefix "${EXPORT_GCS_PREFIX:-}"' in run_script
+    assert '--export-gcs-project "$EXPORT_GCS_PROJECT"' in run_script
     assert '--export-bq-project "$EXPORT_BQ_PROJECT"' in run_script
     assert '--export-bq-dataset "$EXPORT_BQ_DATASET"' in run_script
     assert '--export-bq-table "$EXPORT_BQ_TABLE"' in run_script
@@ -158,6 +173,10 @@ def test_model_upgrade_workflow_has_factual_connector_inputs_and_export_wiring()
     assert '--export-sf-schema "$EXPORT_SF_SCHEMA"' in run_script
     assert '--export-sf-table "$EXPORT_SF_TABLE"' in run_script
     assert "SNOWFLAKE_PASSWORD secret is required when export_connector=snowflake." in run_script
+    assert (
+        "EXPORT_GCS_BUCKET repository variable is required when export_connector=gcs." in run_script
+    )
+    assert 'elif [ "$EXPORT_CONNECTOR" = "gcs" ]; then' in run_script
     assert 'elif [ "$EXPORT_CONNECTOR" = "bigquery" ]; then' in run_script
     assert 'elif [ "$EXPORT_CONNECTOR" = "snowflake" ]; then' in run_script
 

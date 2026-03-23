@@ -83,6 +83,9 @@ llm-diff report report.json --format csv -o report.csv \
 llm-diff report report.json --format ndjson -o report.ndjson \
   --export-connector s3 --export-s3-bucket my-bucket \
   --export-s3-prefix team-a/exports --export-s3-region eu-west-1
+llm-diff report report.json --format markdown -o report.md \
+  --export-connector gcs --export-gcs-bucket my-bucket \
+  --export-gcs-prefix team-a/exports --export-gcs-project analytics-prj
 llm-diff report report.json --format ndjson -o report.ndjson \
   --export-connector bigquery \
   --export-bq-project analytics-prj \
@@ -104,13 +107,16 @@ Options:
 - `report_file` (required): JSON report path
 - `--format`: `table` (default), `json`, `html`, `markdown`, `csv`, `ndjson`, `junit`
 - `--output`, `-o`: output file path (stdout when omitted)
-- `--export-connector`: `none` (default), `http`, `s3`, `bigquery`, or `snowflake`
+- `--export-connector`: `none` (default), `http`, `s3`, `gcs`, `bigquery`, or `snowflake`
 - `--export-endpoint`: required when `--export-connector=http`
 - `--export-timeout`: connector timeout seconds (default `10.0`)
 - `--export-api-key`: optional explicit API key (fallback: `LLM_DIFF_EXPORT_API_KEY`)
 - `--export-s3-bucket`: required when `--export-connector=s3`
 - `--export-s3-prefix`: optional S3 key prefix (default empty)
 - `--export-s3-region`: optional S3 region override
+- `--export-gcs-bucket`: required when `--export-connector=gcs`
+- `--export-gcs-prefix`: optional GCS object prefix (default empty)
+- `--export-gcs-project`: optional GCS project override (ADC project used when omitted)
 - `--export-bq-project`: required when `--export-connector=bigquery`
 - `--export-bq-dataset`: required when `--export-connector=bigquery`
 - `--export-bq-table`: required when `--export-connector=bigquery`
@@ -135,8 +141,9 @@ Export format behavior:
 - `csv`: one row per `diff_result`, metric-focused columns, no raw model responses.
 - `ndjson`: one JSON object per `diff_result`, includes run context + comparator metadata + raw responses.
 - `junit`: one `<testcase>` per `diff_result`; `is_regression=true` maps to `<failure>`, others pass with status in `system-out`.
-- direct connector dispatch is opt-in and supports `http`, `s3`, `bigquery`, and `snowflake`.
+- direct connector dispatch is opt-in and supports `http`, `s3`, `gcs`, `bigquery`, and `snowflake`.
 - connector dispatch requires non-`table` formats.
+- `gcs` supports all non-`table` report formats and uses ADC credentials.
 - `bigquery` dispatch requires `--format ndjson` and fails fast on insert errors.
 - `snowflake` dispatch requires `--format ndjson` and fails fast on insert errors.
 

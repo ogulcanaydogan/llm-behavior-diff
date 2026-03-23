@@ -1061,6 +1061,165 @@ def test_report_s3_export_connector_requires_bucket(tmp_path: Path) -> None:
     assert "export_s3_bucket is required" in result.output
 
 
+def test_report_gcs_export_connector_success_csv_and_ndjson(tmp_path: Path, monkeypatch) -> None:
+    report_path = tmp_path / "report_gcs_export.json"
+    captured_uploads: list[dict[str, object]] = []
+    captured_client: dict[str, object] = {}
+
+    report = BehaviorReport(
+        model_a="gpt-4o",
+        model_b="gpt-4.5",
+        suite_name="suite_gcs_export",
+        total_tests=1,
+        total_diffs=1,
+        regressions=0,
+        improvements=1,
+        duration_seconds=0.4,
+        diff_results=[
+            DiffResult(
+                test_id="gcs_001",
+                model_a="gpt-4o",
+                model_b="gpt-4.5",
+                response_a="a",
+                response_b="b",
+                is_semantically_same=False,
+                semantic_similarity=0.11,
+                behavior_category=BehaviorCategory.KNOWLEDGE_CHANGE,
+                is_regression=False,
+                is_improvement=True,
+                confidence=0.8,
+                explanation="improvement",
+            )
+        ],
+    )
+    report_path.write_text(json.dumps(report.model_dump(mode="json"), indent=2), encoding="utf-8")
+
+    class FakeBlob:
+        def __init__(self, key: str):
+            self.key = key
+
+        def upload_from_string(self, data: str, content_type: str, timeout: float) -> None:
+            captured_uploads.append(
+                {
+                    "key": self.key,
+                    "data": data,
+                    "content_type": content_type,
+                    "timeout": timeout,
+                }
+            )
+
+    class FakeBucket:
+        def __init__(self, name: str):
+            self.name = name
+
+        def blob(self, key: str) -> FakeBlob:
+            return FakeBlob(key)
+
+    class FakeGCSClient:
+        def bucket(self, name: str) -> FakeBucket:
+            captured_client["bucket"] = name
+            return FakeBucket(name)
+
+    def fake_create_gcs_client(project: str | None, timeout_seconds: float):
+        captured_client["project"] = project
+        captured_client["timeout"] = timeout_seconds
+        return FakeGCSClient()
+
+    monkeypatch.setattr("llm_behavior_diff.cli._create_gcs_client", fake_create_gcs_client)
+
+    csv_path = tmp_path / "report_gcs_export.csv"
+    csv_result = CliRunner().invoke(
+        main,
+        [
+            "report",
+            str(report_path),
+            "--format",
+            "csv",
+            "--output",
+            str(csv_path),
+            "--export-connector",
+            "gcs",
+            "--export-gcs-bucket",
+            "llm-diff-gcs",
+            "--export-gcs-prefix",
+            "team-a/exports",
+            "--export-gcs-project",
+            "analytics-prj",
+            "--export-timeout",
+            "9",
+        ],
+    )
+    assert csv_result.exit_code == 0
+    assert "External export delivered" in csv_result.output
+
+    ndjson_path = tmp_path / "report_gcs_export.ndjson"
+    ndjson_result = CliRunner().invoke(
+        main,
+        [
+            "report",
+            str(report_path),
+            "--format",
+            "ndjson",
+            "--output",
+            str(ndjson_path),
+            "--export-connector",
+            "gcs",
+            "--export-gcs-bucket",
+            "llm-diff-gcs",
+            "--export-gcs-prefix",
+            "team-a/exports",
+            "--export-gcs-project",
+            "analytics-prj",
+            "--export-timeout",
+            "9",
+        ],
+    )
+    assert ndjson_result.exit_code == 0
+    assert "External export delivered" in ndjson_result.output
+
+    assert captured_client["project"] == "analytics-prj"
+    assert captured_client["timeout"] == 9.0
+    assert captured_client["bucket"] == "llm-diff-gcs"
+    assert len(captured_uploads) == 2
+    assert captured_uploads[0]["content_type"] == "text/csv"
+    assert captured_uploads[1]["content_type"] == "application/x-ndjson"
+    assert str(captured_uploads[0]["key"]).startswith("team-a/exports/suite_gcs_export/")
+    assert str(captured_uploads[1]["key"]).endswith("/report.ndjson")
+
+
+def test_report_gcs_export_connector_requires_bucket(tmp_path: Path) -> None:
+    report_path = tmp_path / "report_gcs_export_missing_bucket.json"
+    csv_path = tmp_path / "report_gcs_export_missing_bucket.csv"
+    report = BehaviorReport(
+        model_a="gpt-4o",
+        model_b="gpt-4.5",
+        suite_name="suite_gcs_export",
+        total_tests=0,
+        total_diffs=0,
+        regressions=0,
+        improvements=0,
+        duration_seconds=0.0,
+    )
+    report_path.write_text(json.dumps(report.model_dump(mode="json"), indent=2), encoding="utf-8")
+
+    result = CliRunner().invoke(
+        main,
+        [
+            "report",
+            str(report_path),
+            "--format",
+            "csv",
+            "--output",
+            str(csv_path),
+            "--export-connector",
+            "gcs",
+        ],
+    )
+
+    assert result.exit_code == 1
+    assert "export_gcs_bucket is required" in result.output
+
+
 def test_report_bigquery_export_connector_success(tmp_path: Path, monkeypatch) -> None:
     report_path = tmp_path / "report_bigquery_export.json"
     ndjson_path = tmp_path / "report_bigquery_export.ndjson"
@@ -1479,7 +1638,7 @@ def test_report_snowflake_export_connector_rejects_non_ndjson_format(tmp_path: P
     assert "supports only --format ndjson" in result.output
 
 
-def test_report_export_connector_rejects_table_format(tmp_path: Path) -> None:
+def test_report_export_connector_rejects_table_format(tmp_path: Path, monkeypatch) -> None:
     report_path = tmp_path / "report_table_export.json"
     report = BehaviorReport(
         model_a="gpt-4o",
@@ -1509,6 +1668,33 @@ def test_report_export_connector_rejects_table_format(tmp_path: Path) -> None:
 
     assert result.exit_code == 1
     assert "requires non-table report format output" in result.output
+
+    called = False
+
+    def fake_create_gcs_client(project: str | None, timeout_seconds: float):
+        nonlocal called
+        called = True
+        return object()
+
+    monkeypatch.setattr("llm_behavior_diff.cli._create_gcs_client", fake_create_gcs_client)
+
+    gcs_result = CliRunner().invoke(
+        main,
+        [
+            "report",
+            str(report_path),
+            "--format",
+            "table",
+            "--export-connector",
+            "gcs",
+            "--export-gcs-bucket",
+            "test-bucket",
+        ],
+    )
+
+    assert gcs_result.exit_code == 1
+    assert "requires non-table report format output" in gcs_result.output
+    assert called is False
 
 
 def test_compare_includes_significance_rows_when_diff_results_available(tmp_path: Path) -> None:

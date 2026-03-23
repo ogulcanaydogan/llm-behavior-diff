@@ -18,7 +18,7 @@
 - Aggregate regressions/improvements with a fixed precedence policy
 - Track token usage and estimated cost metadata
 - Generate table/json/html/markdown/csv/ndjson/junit reports
-- Optionally dispatch rendered report exports to external HTTP endpoints, S3, BigQuery, or Snowflake (NDJSON-only for BigQuery/Snowflake)
+- Optionally dispatch rendered report exports to external HTTP endpoints, S3, GCS, BigQuery, or Snowflake (`gcs` supports all non-table formats; `bigquery`/`snowflake` are NDJSON-only)
 - Enforce upgrade gates in CI using built-in suites
 
 ## Fast Example
