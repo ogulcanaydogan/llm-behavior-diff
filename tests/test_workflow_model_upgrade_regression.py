@@ -24,10 +24,8 @@ EXPECTED_INPUT_KEYS = (
     "export_connector_timeout",
     "export_s3_bucket",
     "export_s3_prefix",
-    "export_s3_region",
     "export_sf_account",
     "export_sf_database",
-    "export_sf_role",
     "export_sf_schema",
     "export_sf_table",
     "export_sf_user",
@@ -86,6 +84,9 @@ def _assert_input_present(inputs: dict[str, Any], key: str) -> None:
 
 
 def _assert_input_shape(inputs: dict[str, Any], source: str) -> None:
+    assert len(inputs) <= 25, (
+        f"{source} input count exceeds GitHub Actions workflow input limit (25): " f"{len(inputs)}"
+    )
     assert set(inputs) == set(EXPECTED_INPUT_KEYS), (
         f"{source} input keys drifted.\n"
         f"Expected: {sorted(EXPECTED_INPUT_KEYS)}\n"
@@ -146,7 +147,6 @@ def test_model_upgrade_workflow_has_factual_connector_inputs_and_export_wiring()
     assert '--export-endpoint "$EXPORT_CONNECTOR_ENDPOINT"' in run_script
     assert '--export-s3-bucket "$EXPORT_S3_BUCKET"' in run_script
     assert '--export-s3-prefix "$EXPORT_S3_PREFIX"' in run_script
-    assert '--export-s3-region "$EXPORT_S3_REGION"' in run_script
     assert '--export-bq-project "$EXPORT_BQ_PROJECT"' in run_script
     assert '--export-bq-dataset "$EXPORT_BQ_DATASET"' in run_script
     assert '--export-bq-table "$EXPORT_BQ_TABLE"' in run_script
@@ -157,7 +157,6 @@ def test_model_upgrade_workflow_has_factual_connector_inputs_and_export_wiring()
     assert '--export-sf-database "$EXPORT_SF_DATABASE"' in run_script
     assert '--export-sf-schema "$EXPORT_SF_SCHEMA"' in run_script
     assert '--export-sf-table "$EXPORT_SF_TABLE"' in run_script
-    assert '--export-sf-role "$EXPORT_SF_ROLE"' in run_script
     assert "SNOWFLAKE_PASSWORD secret is required when export_connector=snowflake." in run_script
     assert 'elif [ "$EXPORT_CONNECTOR" = "bigquery" ]; then' in run_script
     assert 'elif [ "$EXPORT_CONNECTOR" = "snowflake" ]; then' in run_script
