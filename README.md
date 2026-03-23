@@ -43,7 +43,7 @@ Ad-hoc prompt checks miss these patterns and are hard to reproduce in CI.
 - Single-suite run command with retry/rate-limit/cost controls
 - JSON report artifacts for CI and governance workflows
 - Report rendering in `table`, `json`, `markdown`, `csv`, `ndjson`, `junit`, and interactive self-contained `html`
-- Optional direct export connectors for rendered reports (`--export-connector http|s3|bigquery`)
+- Optional direct export connectors for rendered reports (`--export-connector http|s3|bigquery|snowflake`)
 - Run-to-run compare command with delta metrics
 - Policy gate command for deterministic release decisions (`strict|balanced|permissive`)
 
@@ -69,6 +69,7 @@ export LLM_DIFF_LOCAL_BASE_URL=http://localhost:11434/v1
 # export AWS_ACCESS_KEY_ID=...
 # export AWS_SECRET_ACCESS_KEY=...
 # export AWS_SESSION_TOKEN=...   # optional
+# export LLM_DIFF_EXPORT_SF_PASSWORD=...  # optional Snowflake export password
 ```
 
 ### 2) Create a suite
@@ -137,6 +138,14 @@ llm-diff report run_report.json --format ndjson -o run_report.ndjson \
   --export-bq-dataset llm_diff \
   --export-bq-table diff_rows \
   --export-bq-location EU
+llm-diff report run_report.json --format ndjson -o run_report.ndjson \
+  --export-connector snowflake \
+  --export-sf-account xy12345.eu-west-1 \
+  --export-sf-user svc_llm_diff \
+  --export-sf-warehouse COMPUTE_WH \
+  --export-sf-database ANALYTICS_DB \
+  --export-sf-schema LLM_DIFF \
+  --export-sf-table DIFF_ROWS
 ```
 
 ### 6) Compare two runs
@@ -246,6 +255,7 @@ Optional direct export connectors:
 - HTTP: `--export-connector http --export-endpoint ...`
 - S3: `--export-connector s3 --export-s3-bucket ... [--export-s3-prefix ...] [--export-s3-region ...]`
 - BigQuery (NDJSON only): `--export-connector bigquery --format ndjson --export-bq-project ... --export-bq-dataset ... --export-bq-table ... [--export-bq-location ...]`
+- Snowflake (NDJSON only): `--export-connector snowflake --format ndjson --export-sf-account ... --export-sf-user ... --export-sf-warehouse ... --export-sf-database ... --export-sf-schema ... --export-sf-table ... [--export-sf-role ...]` (`--export-sf-password` or `LLM_DIFF_EXPORT_SF_PASSWORD`)
 
 ### `llm-diff compare`
 
@@ -267,7 +277,7 @@ Evaluate one run report with deterministic policy tiers:
 - `release-check.yml`: build/twine/wheel smoke checks
 - `publish-pypi.yml`: manual TestPyPI/PyPI publish flow
 - `docker-image.yml`: PR/master build+smoke, optional manual GHCR push
-- `model-upgrade-regression.yml`: manual/reusable regression gate (`gate_policy`, `gate_policy_pack`, optional `gate_policy_file`; optional factual connector inputs; default `strict + core`) + per-suite export artifacts (`csv`, `ndjson`, `junit`) + optional direct export connectors (`http|s3|bigquery`)
+- `model-upgrade-regression.yml`: manual/reusable regression gate (`gate_policy`, `gate_policy_pack`, optional `gate_policy_file`; optional factual connector inputs; default `strict + core`) + per-suite export artifacts (`csv`, `ndjson`, `junit`) + optional direct export connectors (`http|s3|bigquery|snowflake`)
 - Node24 deprecation closure: workflows keep `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24=true` and now run on Node24-ready major action pins.
 - Workflow security hardening: all third-party actions are pinned to full commit SHAs; Dependabot auto-updates `github-actions` minor/patch versions weekly, while major bumps are handled in planned maintenance windows.
 
@@ -304,7 +314,7 @@ Implemented now:
 - bootstrap delta CI + permutation p-value (compare rows)
 - risk-tier gate policies (CLI + model-upgrade workflow)
 - enterprise-ready report export artifacts (`csv`, `ndjson`, `junit`)
-- optional direct export connectors (`http`, `s3`, `bigquery`; `bigquery` is NDJSON-only)
+- optional direct export connectors (`http`, `s3`, `bigquery`, `snowflake`; `bigquery`/`snowflake` are NDJSON-only)
 - suite templates and CI distribution workflows
 
 Committed roadmap status:
@@ -313,7 +323,7 @@ Committed roadmap status:
 
 Future exploration candidates (not committed yet):
 
-- additional provider-specific external sinks beyond `s3` and `bigquery` (for example warehouse-native connectors)
+- additional provider-specific external sinks beyond `s3`, `bigquery`, and `snowflake` (for example warehouse-native connectors)
 
 ## Contributing
 
