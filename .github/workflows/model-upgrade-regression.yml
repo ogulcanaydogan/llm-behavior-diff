@@ -76,6 +76,7 @@ on:
           - bigquery
           - snowflake
           - redshift
+          - azure_blob
       export_connector_endpoint:
         description: "Optional export connector endpoint URL (required for export_connector=http)"
         required: false
@@ -276,6 +277,9 @@ jobs:
       EXPORT_GCS_BUCKET: ${{ vars.EXPORT_GCS_BUCKET }}
       EXPORT_GCS_PREFIX: ${{ vars.EXPORT_GCS_PREFIX }}
       EXPORT_GCS_PROJECT: ${{ vars.EXPORT_GCS_PROJECT }}
+      EXPORT_AZ_ACCOUNT_URL: ${{ vars.EXPORT_AZ_ACCOUNT_URL }}
+      EXPORT_AZ_CONTAINER: ${{ vars.EXPORT_AZ_CONTAINER }}
+      EXPORT_AZ_PREFIX: ${{ vars.EXPORT_AZ_PREFIX }}
       EXPORT_BQ_PROJECT: ${{ inputs.export_bq_project }}
       EXPORT_BQ_DATASET: ${{ inputs.export_bq_dataset }}
       EXPORT_BQ_TABLE: ${{ inputs.export_bq_table }}
@@ -404,6 +408,21 @@ jobs:
               if [ -n "${EXPORT_GCS_PROJECT:-}" ]; then
                 connector_args+=(--export-gcs-project "$EXPORT_GCS_PROJECT")
               fi
+              export_args_csv=("${connector_args[@]}")
+              export_args_ndjson=("${connector_args[@]}")
+              export_args_junit=("${connector_args[@]}")
+            elif [ "$EXPORT_CONNECTOR" = "azure_blob" ]; then
+              if [ -z "$EXPORT_AZ_ACCOUNT_URL" ]; then
+                echo "EXPORT_AZ_ACCOUNT_URL repository variable is required when export_connector=azure_blob."
+                exit 1
+              fi
+              if [ -z "$EXPORT_AZ_CONTAINER" ]; then
+                echo "EXPORT_AZ_CONTAINER repository variable is required when export_connector=azure_blob."
+                exit 1
+              fi
+              connector_args+=(--export-az-account-url "$EXPORT_AZ_ACCOUNT_URL")
+              connector_args+=(--export-az-container "$EXPORT_AZ_CONTAINER")
+              connector_args+=(--export-az-prefix "${EXPORT_AZ_PREFIX:-}")
               export_args_csv=("${connector_args[@]}")
               export_args_ndjson=("${connector_args[@]}")
               export_args_junit=("${connector_args[@]}")
