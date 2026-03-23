@@ -216,7 +216,7 @@ def run(
 )
 @click.option(
     "--export-connector",
-    type=click.Choice(["none", "http", "s3", "bigquery", "snowflake", "gcs"]),
+    type=click.Choice(["none", "http", "s3", "bigquery", "snowflake", "gcs", "redshift"]),
     default="none",
     show_default=True,
     help="Optional direct export connector for rendered report output",
@@ -332,6 +332,50 @@ def run(
     type=str,
     help="Snowflake table (required when --export-connector snowflake)",
 )
+@click.option(
+    "--export-rs-host",
+    type=str,
+    help="Redshift host (required when --export-connector redshift)",
+)
+@click.option(
+    "--export-rs-port",
+    type=int,
+    default=5439,
+    show_default=True,
+    help="Redshift port",
+)
+@click.option(
+    "--export-rs-database",
+    type=str,
+    help="Redshift database (required when --export-connector redshift)",
+)
+@click.option(
+    "--export-rs-user",
+    type=str,
+    help="Redshift user (required when --export-connector redshift)",
+)
+@click.option(
+    "--export-rs-password",
+    type=str,
+    help="Redshift password (optional flag; fallback: LLM_DIFF_EXPORT_RS_PASSWORD)",
+)
+@click.option(
+    "--export-rs-schema",
+    type=str,
+    help="Redshift schema (required when --export-connector redshift)",
+)
+@click.option(
+    "--export-rs-table",
+    type=str,
+    help="Redshift table (required when --export-connector redshift)",
+)
+@click.option(
+    "--export-rs-sslmode",
+    type=str,
+    default="require",
+    show_default=True,
+    help="Redshift sslmode",
+)
 def report(
     report_file: str,
     format: str,
@@ -358,6 +402,14 @@ def report(
     export_sf_database: Optional[str],
     export_sf_schema: Optional[str],
     export_sf_table: Optional[str],
+    export_rs_host: Optional[str],
+    export_rs_port: int,
+    export_rs_database: Optional[str],
+    export_rs_user: Optional[str],
+    export_rs_password: Optional[str],
+    export_rs_schema: Optional[str],
+    export_rs_table: Optional[str],
+    export_rs_sslmode: str,
 ) -> None:
     """
     Generate behavioral diff report from results.
@@ -426,6 +478,14 @@ def report(
                 sf_database=export_sf_database,
                 sf_schema=export_sf_schema,
                 sf_table=export_sf_table,
+                rs_host=export_rs_host,
+                rs_port=export_rs_port,
+                rs_database=export_rs_database,
+                rs_user=export_rs_user,
+                rs_password=export_rs_password,
+                rs_schema=export_rs_schema,
+                rs_table=export_rs_table,
+                rs_sslmode=export_rs_sslmode,
             )
             console.print("[green]External export delivered[/green]")
         except Exception as exc:
@@ -947,6 +1007,13 @@ def _resolve_export_snowflake_password(explicit_password: Optional[str]) -> Opti
     return env_password or None
 
 
+def _resolve_export_redshift_password(explicit_password: Optional[str]) -> Optional[str]:
+    if explicit_password and explicit_password.strip():
+        return explicit_password.strip()
+    env_password = os.getenv("LLM_DIFF_EXPORT_RS_PASSWORD", "").strip()
+    return env_password or None
+
+
 def _content_type_for_report_format(report_format: str) -> str:
     mapping = {
         "json": "application/json",
@@ -1052,10 +1119,46 @@ def _create_snowflake_connection(
     return snowflake.connector.connect(**kwargs)
 
 
+def _create_redshift_connection(
+    *,
+    host: str,
+    port: int,
+    database: str,
+    user: str,
+    password: str,
+    sslmode: str,
+    timeout_seconds: float,
+) -> Any:
+    import redshift_connector
+
+    kwargs: dict[str, Any] = {
+        "host": host,
+        "port": port,
+        "database": database,
+        "user": user,
+        "password": password,
+        "sslmode": sslmode,
+        "timeout": timeout_seconds,
+    }
+    try:
+        return redshift_connector.connect(**kwargs)
+    except TypeError:
+        kwargs.pop("timeout", None)
+        return redshift_connector.connect(**kwargs)
+
+
 def _quote_snowflake_identifier(identifier: str) -> str:
     normalized = identifier.strip()
     if not normalized:
         raise ValueError("Snowflake identifier must not be empty.")
+    escaped = normalized.replace('"', '""')
+    return f'"{escaped}"'
+
+
+def _quote_redshift_identifier(identifier: str) -> str:
+    normalized = identifier.strip()
+    if not normalized:
+        raise ValueError("Redshift identifier must not be empty.")
     escaped = normalized.replace('"', '""')
     return f'"{escaped}"'
 
@@ -1127,6 +1230,14 @@ def _dispatch_report_export(
     sf_database: Optional[str],
     sf_schema: Optional[str],
     sf_table: Optional[str],
+    rs_host: Optional[str],
+    rs_port: int,
+    rs_database: Optional[str],
+    rs_user: Optional[str],
+    rs_password: Optional[str],
+    rs_schema: Optional[str],
+    rs_table: Optional[str],
+    rs_sslmode: str,
 ) -> None:
     if timeout_seconds <= 0:
         raise ValueError("export_timeout must be > 0")
@@ -1299,9 +1410,67 @@ def _dispatch_report_export(
             connection.close()
         return
 
+    if normalized == "redshift":
+        if report_format != "ndjson":
+            raise ValueError("export_connector 'redshift' supports only --format ndjson.")
+        if not rs_host or not rs_host.strip():
+            raise ValueError("export_rs_host is required when export_connector is 'redshift'.")
+        if rs_port <= 0:
+            raise ValueError("export_rs_port must be > 0 when export_connector is 'redshift'.")
+        if not rs_database or not rs_database.strip():
+            raise ValueError("export_rs_database is required when export_connector is 'redshift'.")
+        if not rs_user or not rs_user.strip():
+            raise ValueError("export_rs_user is required when export_connector is 'redshift'.")
+        resolved_rs_password = _resolve_export_redshift_password(rs_password)
+        if not resolved_rs_password:
+            raise ValueError(
+                "Redshift password is required via --export-rs-password or "
+                "LLM_DIFF_EXPORT_RS_PASSWORD."
+            )
+        if not rs_schema or not rs_schema.strip():
+            raise ValueError("export_rs_schema is required when export_connector is 'redshift'.")
+        if not rs_table or not rs_table.strip():
+            raise ValueError("export_rs_table is required when export_connector is 'redshift'.")
+        if not rs_sslmode or not rs_sslmode.strip():
+            raise ValueError(
+                "export_rs_sslmode must not be empty when export_connector is 'redshift'."
+            )
+
+        rows = _build_bigquery_rows_from_ndjson(content)
+        if not rows:
+            return
+
+        quoted_table = ".".join(
+            [
+                _quote_redshift_identifier(rs_schema),
+                _quote_redshift_identifier(rs_table),
+            ]
+        )
+        columns = list(rows[0].keys())
+        quoted_columns = ", ".join(_quote_redshift_identifier(column) for column in columns)
+        placeholders = ", ".join(f"%({column})s" for column in columns)
+        query = f"INSERT INTO {quoted_table} ({quoted_columns}) VALUES ({placeholders})"
+        connection = _create_redshift_connection(
+            host=rs_host.strip(),
+            port=rs_port,
+            database=rs_database.strip(),
+            user=rs_user.strip(),
+            password=resolved_rs_password,
+            sslmode=rs_sslmode.strip(),
+            timeout_seconds=timeout_seconds,
+        )
+        cursor = connection.cursor()
+        try:
+            cursor.executemany(query, rows)
+            connection.commit()
+        finally:
+            cursor.close()
+            connection.close()
+        return
+
     raise ValueError(
         f"Unsupported export connector '{connector}'. Supported: none, http, s3, gcs, "
-        "bigquery, snowflake."
+        "bigquery, snowflake, redshift."
     )
 
 
