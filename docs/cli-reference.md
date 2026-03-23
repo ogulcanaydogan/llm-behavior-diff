@@ -109,6 +109,11 @@ llm-diff report report.json --format ndjson -o report.ndjson \
   --export-rs-schema llm_diff \
   --export-rs-table diff_rows \
   --export-rs-sslmode require
+llm-diff report report.json --format markdown -o report.md \
+  --export-connector azure_blob \
+  --export-az-account-url https://myaccount.blob.core.windows.net \
+  --export-az-container llm-diff-exports \
+  --export-az-prefix team-a/exports
 ```
 
 Options:
@@ -116,7 +121,7 @@ Options:
 - `report_file` (required): JSON report path
 - `--format`: `table` (default), `json`, `html`, `markdown`, `csv`, `ndjson`, `junit`
 - `--output`, `-o`: output file path (stdout when omitted)
-- `--export-connector`: `none` (default), `http`, `s3`, `gcs`, `bigquery`, `snowflake`, or `redshift`
+- `--export-connector`: `none` (default), `http`, `s3`, `gcs`, `bigquery`, `snowflake`, `redshift`, or `azure_blob`
 - `--export-endpoint`: required when `--export-connector=http`
 - `--export-timeout`: connector timeout seconds (default `10.0`)
 - `--export-api-key`: optional explicit API key (fallback: `LLM_DIFF_EXPORT_API_KEY`)
@@ -126,6 +131,9 @@ Options:
 - `--export-gcs-bucket`: required when `--export-connector=gcs`
 - `--export-gcs-prefix`: optional GCS object prefix (default empty)
 - `--export-gcs-project`: optional GCS project override (ADC project used when omitted)
+- `--export-az-account-url`: required when `--export-connector=azure_blob`
+- `--export-az-container`: required when `--export-connector=azure_blob`
+- `--export-az-prefix`: optional Azure Blob object prefix (default empty)
 - `--export-bq-project`: required when `--export-connector=bigquery`
 - `--export-bq-dataset`: required when `--export-connector=bigquery`
 - `--export-bq-table`: required when `--export-connector=bigquery`
@@ -158,9 +166,10 @@ Export format behavior:
 - `csv`: one row per `diff_result`, metric-focused columns, no raw model responses.
 - `ndjson`: one JSON object per `diff_result`, includes run context + comparator metadata + raw responses.
 - `junit`: one `<testcase>` per `diff_result`; `is_regression=true` maps to `<failure>`, others pass with status in `system-out`.
-- direct connector dispatch is opt-in and supports `http`, `s3`, `gcs`, `bigquery`, `snowflake`, and `redshift`.
+- direct connector dispatch is opt-in and supports `http`, `s3`, `gcs`, `bigquery`, `snowflake`, `redshift`, and `azure_blob`.
 - connector dispatch requires non-`table` formats.
 - `gcs` supports all non-`table` report formats and uses ADC credentials.
+- `azure_blob` supports all non-`table` report formats and uses `DefaultAzureCredential`.
 - `bigquery` dispatch requires `--format ndjson` and fails fast on insert errors.
 - `snowflake` dispatch requires `--format ndjson` and fails fast on insert errors.
 - `redshift` dispatch requires `--format ndjson` and fails fast on insert errors.

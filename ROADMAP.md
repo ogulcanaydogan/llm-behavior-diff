@@ -110,6 +110,7 @@ The `git diff` for LLM behavior. When you upgrade a model version, know exactly 
 - [x] Provider-specific external sink V3 (`snowflake`, NDJSON-only) for report command + workflow parity
 - [x] Provider-specific external sink V4 (`gcs`, all non-table formats) for report command + workflow parity
 - [x] Provider-specific external sink V5 (`redshift`, NDJSON-only) for report command + workflow parity
+- [x] Provider-specific external sink V6 (`azure_blob`, all non-table formats) for report command + workflow parity
 
 ## Current Status
 No open committed roadmap items at this time. Future work will be tracked as new phases when prioritized.
