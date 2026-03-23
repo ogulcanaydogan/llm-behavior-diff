@@ -1006,13 +1006,13 @@ def _build_gcs_object_key(prefix: str, suite_name: str, report_id: str, report_f
 
 
 def _create_gcs_client(project: Optional[str], timeout_seconds: float) -> Any:
-    from google.cloud import storage
+    from google.cloud.storage import Client
 
     _ = timeout_seconds
     kwargs: dict[str, Any] = {}
     if project and project.strip():
         kwargs["project"] = project.strip()
-    return storage.Client(**kwargs)
+    return Client(**kwargs)
 
 
 def _create_bigquery_client(project: str, location: Optional[str]) -> Any:
