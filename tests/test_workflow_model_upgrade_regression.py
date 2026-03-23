@@ -6,13 +6,77 @@ from pathlib import Path
 from typing import Any
 
 import yaml  # type: ignore[import-untyped]
+from yaml.resolver import BaseResolver  # type: ignore[import-untyped]
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW_PATH = ROOT / ".github" / "workflows" / "model-upgrade-regression.yml"
 
+EXPECTED_INPUT_KEYS = (
+    "factual_connector",
+    "factual_connector_max_results",
+    "factual_connector_timeout",
+    "export_bq_dataset",
+    "export_bq_location",
+    "export_bq_project",
+    "export_bq_table",
+    "export_connector",
+    "export_connector_endpoint",
+    "export_connector_timeout",
+    "export_s3_bucket",
+    "export_s3_prefix",
+    "export_s3_region",
+    "export_sf_account",
+    "export_sf_database",
+    "export_sf_role",
+    "export_sf_schema",
+    "export_sf_table",
+    "export_sf_user",
+    "export_sf_warehouse",
+    "gate_policy",
+    "gate_policy_file",
+    "gate_policy_pack",
+    "max_workers",
+    "model_a",
+    "model_b",
+    "suite_list",
+)
+
+
+class _NoDuplicateKeyLoader(yaml.SafeLoader):
+    """YAML loader that fails hard on duplicate mapping keys."""
+
+
+def _construct_mapping_no_duplicates(
+    loader: _NoDuplicateKeyLoader,
+    node: yaml.nodes.MappingNode,  # type: ignore[name-defined]
+    deep: bool = False,
+) -> dict[Any, Any]:
+    mapping: dict[Any, Any] = {}
+    for key_node, value_node in node.value:
+        key = loader.construct_object(key_node, deep=deep)
+        if key in mapping:
+            line = key_node.start_mark.line + 1
+            raise AssertionError(
+                f"Duplicate YAML key '{key}' in {WORKFLOW_PATH.name} at line {line}."
+            )
+        mapping[key] = loader.construct_object(value_node, deep=deep)
+    return mapping
+
+
+_NoDuplicateKeyLoader.add_constructor(  # type: ignore[arg-type]
+    BaseResolver.DEFAULT_MAPPING_TAG,
+    _construct_mapping_no_duplicates,
+)
+
 
 def _load_workflow() -> dict[str, Any]:
-    payload = yaml.safe_load(WORKFLOW_PATH.read_text(encoding="utf-8")) or {}
+    payload = (
+        yaml.load(
+            WORKFLOW_PATH.read_text(encoding="utf-8"),
+            Loader=_NoDuplicateKeyLoader,
+        )
+        or {}
+    )
     assert isinstance(payload, dict), "Workflow YAML must be a top-level mapping."
     return payload
 
@@ -21,38 +85,36 @@ def _assert_input_present(inputs: dict[str, Any], key: str) -> None:
     assert key in inputs, f"Missing '{key}' input in workflow."
 
 
+def _assert_input_shape(inputs: dict[str, Any], source: str) -> None:
+    assert set(inputs) == set(EXPECTED_INPUT_KEYS), (
+        f"{source} input keys drifted.\n"
+        f"Expected: {sorted(EXPECTED_INPUT_KEYS)}\n"
+        f"Actual: {sorted(inputs)}"
+    )
+    for key, value in inputs.items():
+        assert isinstance(value, dict), f"'{key}' in {source} must be a mapping."
+        assert isinstance(
+            value.get("required"), bool
+        ), f"'{key}' in {source} must define boolean 'required'."
+        assert isinstance(value.get("type"), str), f"'{key}' in {source} must define string 'type'."
+
+
 def test_model_upgrade_workflow_has_factual_connector_inputs_and_export_wiring() -> None:
     workflow = _load_workflow()
     on_section = workflow.get("on", workflow.get(True))
     assert isinstance(on_section, dict), "Workflow must define an 'on' section."
+    assert set(on_section) == {"workflow_dispatch", "workflow_call"}, (
+        "model-upgrade-regression.yml must remain manual/reusable only " "(no push trigger)."
+    )
 
     dispatch_inputs = on_section["workflow_dispatch"]["inputs"]
     call_inputs = on_section["workflow_call"]["inputs"]
     assert isinstance(dispatch_inputs, dict)
     assert isinstance(call_inputs, dict)
+    _assert_input_shape(dispatch_inputs, "workflow_dispatch")
+    _assert_input_shape(call_inputs, "workflow_call")
 
-    for key in (
-        "factual_connector",
-        "factual_connector_timeout",
-        "factual_connector_max_results",
-        "export_connector",
-        "export_connector_endpoint",
-        "export_connector_timeout",
-        "export_s3_bucket",
-        "export_s3_prefix",
-        "export_s3_region",
-        "export_bq_project",
-        "export_bq_dataset",
-        "export_bq_table",
-        "export_bq_location",
-        "export_sf_account",
-        "export_sf_user",
-        "export_sf_role",
-        "export_sf_warehouse",
-        "export_sf_database",
-        "export_sf_schema",
-        "export_sf_table",
-    ):
+    for key in EXPECTED_INPUT_KEYS:
         _assert_input_present(dispatch_inputs, key)
         _assert_input_present(call_inputs, key)
 
