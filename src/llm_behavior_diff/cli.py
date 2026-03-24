@@ -14,6 +14,7 @@ import xml.etree.ElementTree as ET
 from html import escape as html_escape
 from pathlib import Path
 from typing import Any, Optional
+from urllib.parse import urlparse
 
 import click
 import httpx
@@ -218,7 +219,17 @@ def run(
 @click.option(
     "--export-connector",
     type=click.Choice(
-        ["none", "http", "s3", "bigquery", "snowflake", "gcs", "redshift", "azure_blob"]
+        [
+            "none",
+            "http",
+            "s3",
+            "bigquery",
+            "snowflake",
+            "gcs",
+            "redshift",
+            "azure_blob",
+            "databricks",
+        ]
     ),
     default="none",
     show_default=True,
@@ -396,6 +407,36 @@ def run(
     show_default=True,
     help="Redshift sslmode",
 )
+@click.option(
+    "--export-dbx-host",
+    type=str,
+    help="Databricks host (required when --export-connector databricks)",
+)
+@click.option(
+    "--export-dbx-http-path",
+    type=str,
+    help="Databricks SQL HTTP path (required when --export-connector databricks)",
+)
+@click.option(
+    "--export-dbx-token",
+    type=str,
+    help="Databricks PAT token (optional flag; fallback: LLM_DIFF_EXPORT_DBX_TOKEN)",
+)
+@click.option(
+    "--export-dbx-catalog",
+    type=str,
+    help="Databricks catalog (required when --export-connector databricks)",
+)
+@click.option(
+    "--export-dbx-schema",
+    type=str,
+    help="Databricks schema (required when --export-connector databricks)",
+)
+@click.option(
+    "--export-dbx-table",
+    type=str,
+    help="Databricks table (required when --export-connector databricks)",
+)
 def report(
     report_file: str,
     format: str,
@@ -433,6 +474,12 @@ def report(
     export_rs_schema: Optional[str],
     export_rs_table: Optional[str],
     export_rs_sslmode: str,
+    export_dbx_host: Optional[str],
+    export_dbx_http_path: Optional[str],
+    export_dbx_token: Optional[str],
+    export_dbx_catalog: Optional[str],
+    export_dbx_schema: Optional[str],
+    export_dbx_table: Optional[str],
 ) -> None:
     """
     Generate behavioral diff report from results.
@@ -512,6 +559,12 @@ def report(
                 rs_schema=export_rs_schema,
                 rs_table=export_rs_table,
                 rs_sslmode=export_rs_sslmode,
+                dbx_host=export_dbx_host,
+                dbx_http_path=export_dbx_http_path,
+                dbx_token=export_dbx_token,
+                dbx_catalog=export_dbx_catalog,
+                dbx_schema=export_dbx_schema,
+                dbx_table=export_dbx_table,
             )
             console.print("[green]External export delivered[/green]")
         except Exception as exc:
@@ -1253,6 +1306,13 @@ def _resolve_export_redshift_password(explicit_password: Optional[str]) -> Optio
     return env_password or None
 
 
+def _resolve_export_databricks_token(explicit_token: Optional[str]) -> Optional[str]:
+    if explicit_token and explicit_token.strip():
+        return explicit_token.strip()
+    env_token = os.getenv("LLM_DIFF_EXPORT_DBX_TOKEN", "").strip()
+    return env_token or None
+
+
 def _content_type_for_report_format(report_format: str) -> str:
     mapping = {
         "json": "application/json",
@@ -1406,6 +1466,41 @@ def _create_redshift_connection(
         return redshift_connector.connect(**kwargs)
 
 
+def _normalize_databricks_host(host: str) -> str:
+    normalized = host.strip()
+    if not normalized:
+        raise ValueError("Databricks host must not be empty.")
+
+    if "://" in normalized:
+        parsed = urlparse(normalized)
+        normalized = parsed.netloc or parsed.path
+
+    normalized = normalized.strip().strip("/")
+    if "/" in normalized:
+        normalized = normalized.split("/", 1)[0]
+
+    if not normalized:
+        raise ValueError("Databricks host must not be empty.")
+    return normalized
+
+
+def _create_databricks_connection(
+    *,
+    host: str,
+    http_path: str,
+    token: str,
+    timeout_seconds: float,
+) -> Any:
+    from databricks import sql
+
+    _ = timeout_seconds
+    return sql.connect(
+        server_hostname=_normalize_databricks_host(host),
+        http_path=http_path.strip(),
+        access_token=token,
+    )
+
+
 def _quote_snowflake_identifier(identifier: str) -> str:
     normalized = identifier.strip()
     if not normalized:
@@ -1418,6 +1513,14 @@ def _quote_redshift_identifier(identifier: str) -> str:
     normalized = identifier.strip()
     if not normalized:
         raise ValueError("Redshift identifier must not be empty.")
+    escaped = normalized.replace('"', '""')
+    return f'"{escaped}"'
+
+
+def _quote_databricks_identifier(identifier: str) -> str:
+    normalized = identifier.strip()
+    if not normalized:
+        raise ValueError("Databricks identifier must not be empty.")
     escaped = normalized.replace('"', '""')
     return f'"{escaped}"'
 
@@ -1500,6 +1603,12 @@ def _dispatch_report_export(
     rs_schema: Optional[str],
     rs_table: Optional[str],
     rs_sslmode: str,
+    dbx_host: Optional[str],
+    dbx_http_path: Optional[str],
+    dbx_token: Optional[str],
+    dbx_catalog: Optional[str],
+    dbx_schema: Optional[str],
+    dbx_table: Optional[str],
 ) -> None:
     if timeout_seconds <= 0:
         raise ValueError("export_timeout must be > 0")
@@ -1761,9 +1870,63 @@ def _dispatch_report_export(
             connection.close()
         return
 
+    if normalized == "databricks":
+        if report_format != "ndjson":
+            raise ValueError("export_connector 'databricks' supports only --format ndjson.")
+        if not dbx_host or not dbx_host.strip():
+            raise ValueError("export_dbx_host is required when export_connector is 'databricks'.")
+        if not dbx_http_path or not dbx_http_path.strip():
+            raise ValueError(
+                "export_dbx_http_path is required when export_connector is 'databricks'."
+            )
+        resolved_dbx_token = _resolve_export_databricks_token(dbx_token)
+        if not resolved_dbx_token:
+            raise ValueError(
+                "Databricks token is required via --export-dbx-token or "
+                "LLM_DIFF_EXPORT_DBX_TOKEN."
+            )
+        if not dbx_catalog or not dbx_catalog.strip():
+            raise ValueError(
+                "export_dbx_catalog is required when export_connector is 'databricks'."
+            )
+        if not dbx_schema or not dbx_schema.strip():
+            raise ValueError("export_dbx_schema is required when export_connector is 'databricks'.")
+        if not dbx_table or not dbx_table.strip():
+            raise ValueError("export_dbx_table is required when export_connector is 'databricks'.")
+
+        rows = _build_bigquery_rows_from_ndjson(content)
+        if not rows:
+            return
+
+        quoted_table = ".".join(
+            [
+                _quote_databricks_identifier(dbx_catalog),
+                _quote_databricks_identifier(dbx_schema),
+                _quote_databricks_identifier(dbx_table),
+            ]
+        )
+        columns = list(rows[0].keys())
+        quoted_columns = ", ".join(_quote_databricks_identifier(column) for column in columns)
+        placeholders = ", ".join(f"%({column})s" for column in columns)
+        query = f"INSERT INTO {quoted_table} ({quoted_columns}) VALUES ({placeholders})"
+        connection = _create_databricks_connection(
+            host=dbx_host,
+            http_path=dbx_http_path,
+            token=resolved_dbx_token,
+            timeout_seconds=timeout_seconds,
+        )
+        cursor = connection.cursor()
+        try:
+            cursor.executemany(query, rows)
+            connection.commit()
+        finally:
+            cursor.close()
+            connection.close()
+        return
+
     raise ValueError(
         f"Unsupported export connector '{connector}'. Supported: none, http, s3, gcs, "
-        "bigquery, snowflake, redshift, azure_blob."
+        "bigquery, snowflake, redshift, azure_blob, databricks."
     )
 
 

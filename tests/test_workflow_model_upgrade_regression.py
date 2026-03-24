@@ -128,6 +128,7 @@ def test_model_upgrade_workflow_has_factual_connector_inputs_and_export_wiring()
     assert "gcs" in options
     assert "redshift" in options
     assert "azure_blob" in options
+    assert "databricks" in options
 
     job_env = workflow["jobs"]["regression-gate"]["env"]
     assert isinstance(job_env, dict)
@@ -145,6 +146,12 @@ def test_model_upgrade_workflow_has_factual_connector_inputs_and_export_wiring()
     assert job_env.get("EXPORT_RS_TABLE") == "${{ vars.EXPORT_RS_TABLE }}"
     assert job_env.get("EXPORT_RS_SSLMODE") == "${{ vars.EXPORT_RS_SSLMODE }}"
     assert job_env.get("LLM_DIFF_EXPORT_RS_PASSWORD") == "${{ secrets.REDSHIFT_PASSWORD }}"
+    assert job_env.get("EXPORT_DBX_HOST") == "${{ vars.EXPORT_DBX_HOST }}"
+    assert job_env.get("EXPORT_DBX_HTTP_PATH") == "${{ vars.EXPORT_DBX_HTTP_PATH }}"
+    assert job_env.get("EXPORT_DBX_CATALOG") == "${{ vars.EXPORT_DBX_CATALOG }}"
+    assert job_env.get("EXPORT_DBX_SCHEMA") == "${{ vars.EXPORT_DBX_SCHEMA }}"
+    assert job_env.get("EXPORT_DBX_TABLE") == "${{ vars.EXPORT_DBX_TABLE }}"
+    assert job_env.get("LLM_DIFF_EXPORT_DBX_TOKEN") == "${{ secrets.DATABRICKS_TOKEN }}"
 
     steps = workflow["jobs"]["regression-gate"]["steps"]
     assert isinstance(steps, list)
@@ -197,6 +204,11 @@ def test_model_upgrade_workflow_has_factual_connector_inputs_and_export_wiring()
     assert '--export-rs-schema "$EXPORT_RS_SCHEMA"' in run_script
     assert '--export-rs-table "$EXPORT_RS_TABLE"' in run_script
     assert '--export-rs-sslmode "${EXPORT_RS_SSLMODE:-require}"' in run_script
+    assert '--export-dbx-host "$EXPORT_DBX_HOST"' in run_script
+    assert '--export-dbx-http-path "$EXPORT_DBX_HTTP_PATH"' in run_script
+    assert '--export-dbx-catalog "$EXPORT_DBX_CATALOG"' in run_script
+    assert '--export-dbx-schema "$EXPORT_DBX_SCHEMA"' in run_script
+    assert '--export-dbx-table "$EXPORT_DBX_TABLE"' in run_script
     assert "SNOWFLAKE_PASSWORD secret is required when export_connector=snowflake." in run_script
     assert "REDSHIFT_PASSWORD secret is required when export_connector=redshift." in run_script
     assert (
@@ -214,12 +226,35 @@ def test_model_upgrade_workflow_has_factual_connector_inputs_and_export_wiring()
         "EXPORT_RS_HOST repository variable is required when export_connector=redshift."
         in run_script
     )
+    assert (
+        "EXPORT_DBX_HOST repository variable is required when export_connector=databricks."
+        in run_script
+    )
+    assert (
+        "EXPORT_DBX_HTTP_PATH repository variable is required when export_connector=databricks."
+        in run_script
+    )
+    assert (
+        "EXPORT_DBX_CATALOG repository variable is required when export_connector=databricks."
+        in run_script
+    )
+    assert (
+        "EXPORT_DBX_SCHEMA repository variable is required when export_connector=databricks."
+        in run_script
+    )
+    assert (
+        "EXPORT_DBX_TABLE repository variable is required when export_connector=databricks."
+        in run_script
+    )
+    assert "DATABRICKS_TOKEN secret is required when export_connector=databricks." in run_script
     assert 'elif [ "$EXPORT_CONNECTOR" = "gcs" ]; then' in run_script
     assert 'elif [ "$EXPORT_CONNECTOR" = "azure_blob" ]; then' in run_script
     assert 'elif [ "$EXPORT_CONNECTOR" = "bigquery" ]; then' in run_script
     assert 'elif [ "$EXPORT_CONNECTOR" = "snowflake" ]; then' in run_script
     assert 'elif [ "$EXPORT_CONNECTOR" = "redshift" ]; then' in run_script
+    assert 'elif [ "$EXPORT_CONNECTOR" = "databricks" ]; then' in run_script
     assert "REDSHIFT_PASSWORD" in call_secrets
+    assert "DATABRICKS_TOKEN" in call_secrets
 
     export_step = next(
         step

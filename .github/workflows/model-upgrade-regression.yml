@@ -77,6 +77,7 @@ on:
           - snowflake
           - redshift
           - azure_blob
+          - databricks
       export_connector_endpoint:
         description: "Optional export connector endpoint URL (required for export_connector=http)"
         required: false
@@ -239,6 +240,8 @@ on:
         required: false
       REDSHIFT_PASSWORD:
         required: false
+      DATABRICKS_TOKEN:
+        required: false
 
 permissions:
   contents: read
@@ -297,11 +300,17 @@ jobs:
       EXPORT_RS_SCHEMA: ${{ vars.EXPORT_RS_SCHEMA }}
       EXPORT_RS_TABLE: ${{ vars.EXPORT_RS_TABLE }}
       EXPORT_RS_SSLMODE: ${{ vars.EXPORT_RS_SSLMODE }}
+      EXPORT_DBX_HOST: ${{ vars.EXPORT_DBX_HOST }}
+      EXPORT_DBX_HTTP_PATH: ${{ vars.EXPORT_DBX_HTTP_PATH }}
+      EXPORT_DBX_CATALOG: ${{ vars.EXPORT_DBX_CATALOG }}
+      EXPORT_DBX_SCHEMA: ${{ vars.EXPORT_DBX_SCHEMA }}
+      EXPORT_DBX_TABLE: ${{ vars.EXPORT_DBX_TABLE }}
       AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
       AWS_SESSION_TOKEN: ${{ secrets.AWS_SESSION_TOKEN }}
       LLM_DIFF_EXPORT_SF_PASSWORD: ${{ secrets.SNOWFLAKE_PASSWORD }}
       LLM_DIFF_EXPORT_RS_PASSWORD: ${{ secrets.REDSHIFT_PASSWORD }}
+      LLM_DIFF_EXPORT_DBX_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
 
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
@@ -514,6 +523,37 @@ jobs:
               connector_args+=(--export-rs-schema "$EXPORT_RS_SCHEMA")
               connector_args+=(--export-rs-table "$EXPORT_RS_TABLE")
               connector_args+=(--export-rs-sslmode "${EXPORT_RS_SSLMODE:-require}")
+              export_args_ndjson=("${connector_args[@]}")
+            elif [ "$EXPORT_CONNECTOR" = "databricks" ]; then
+              if [ -z "$EXPORT_DBX_HOST" ]; then
+                echo "EXPORT_DBX_HOST repository variable is required when export_connector=databricks."
+                exit 1
+              fi
+              if [ -z "$EXPORT_DBX_HTTP_PATH" ]; then
+                echo "EXPORT_DBX_HTTP_PATH repository variable is required when export_connector=databricks."
+                exit 1
+              fi
+              if [ -z "$LLM_DIFF_EXPORT_DBX_TOKEN" ]; then
+                echo "DATABRICKS_TOKEN secret is required when export_connector=databricks."
+                exit 1
+              fi
+              if [ -z "$EXPORT_DBX_CATALOG" ]; then
+                echo "EXPORT_DBX_CATALOG repository variable is required when export_connector=databricks."
+                exit 1
+              fi
+              if [ -z "$EXPORT_DBX_SCHEMA" ]; then
+                echo "EXPORT_DBX_SCHEMA repository variable is required when export_connector=databricks."
+                exit 1
+              fi
+              if [ -z "$EXPORT_DBX_TABLE" ]; then
+                echo "EXPORT_DBX_TABLE repository variable is required when export_connector=databricks."
+                exit 1
+              fi
+              connector_args+=(--export-dbx-host "$EXPORT_DBX_HOST")
+              connector_args+=(--export-dbx-http-path "$EXPORT_DBX_HTTP_PATH")
+              connector_args+=(--export-dbx-catalog "$EXPORT_DBX_CATALOG")
+              connector_args+=(--export-dbx-schema "$EXPORT_DBX_SCHEMA")
+              connector_args+=(--export-dbx-table "$EXPORT_DBX_TABLE")
               export_args_ndjson=("${connector_args[@]}")
             else
               echo "Unsupported export_connector: $EXPORT_CONNECTOR"
