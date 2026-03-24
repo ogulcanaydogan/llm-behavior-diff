@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import random
-from math import sqrt
+from math import asin, sqrt
 from statistics import NormalDist
 from typing import Sequence
 
@@ -158,8 +158,69 @@ def permutation_rate_delta_test(
     }
 
 
+def cohens_h_rate_delta(rate_a: float, rate_b: float) -> float:
+    """Compute Cohen's h for two proportions as `rate_b - rate_a` effect size."""
+    p_a = _clamp_probability(rate_a)
+    p_b = _clamp_probability(rate_b)
+    return (2.0 * asin(sqrt(p_b))) - (2.0 * asin(sqrt(p_a)))
+
+
+def cohens_h_magnitude(abs_h: float) -> str:
+    """Classify absolute Cohen's h into standard magnitude buckets."""
+    magnitude = abs(float(abs_h))
+    if magnitude < 0.2:
+        return "negligible"
+    if magnitude < 0.5:
+        return "small"
+    if magnitude < 0.8:
+        return "medium"
+    return "large"
+
+
+def benjamini_hochberg_adjust(
+    p_values: Sequence[float], *, alpha: float = 0.05
+) -> list[dict[str, float | bool]]:
+    """Apply Benjamini-Hochberg FDR adjustment to p-values (input order preserved)."""
+    if not p_values:
+        return []
+
+    safe_alpha = _clamp_probability(alpha)
+    indexed = [(idx, _clamp_probability(value)) for idx, value in enumerate(p_values)]
+    sorted_values = sorted(indexed, key=lambda item: (item[1], item[0]))
+    count = len(sorted_values)
+
+    adjusted_sorted = [1.0] * count
+    running_min = 1.0
+    for rank in range(count, 0, -1):
+        sorted_index = rank - 1
+        _, p_value = sorted_values[sorted_index]
+        candidate = p_value * float(count) / float(rank)
+        running_min = min(running_min, candidate)
+        adjusted_sorted[sorted_index] = min(1.0, running_min)
+
+    adjusted_by_original_index = [1.0] * count
+    for sorted_index, (original_index, _) in enumerate(sorted_values):
+        adjusted_by_original_index[original_index] = adjusted_sorted[sorted_index]
+
+    results: list[dict[str, float | bool]] = []
+    for original_index, p_value in indexed:
+        adjusted_p = adjusted_by_original_index[original_index]
+        results.append(
+            {
+                "p_value": p_value,
+                "adjusted_p_value": adjusted_p,
+                "significant": adjusted_p <= safe_alpha,
+            }
+        )
+    return results
+
+
 def _coerce_binary(values: Sequence[int | bool]) -> list[int]:
     return [1 if bool(value) else 0 for value in values]
+
+
+def _clamp_probability(value: float) -> float:
+    return min(1.0, max(0.0, float(value)))
 
 
 def _bootstrap_means(*, sample: Sequence[int], resamples: int, rng: random.Random) -> list[float]:

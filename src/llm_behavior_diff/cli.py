@@ -29,7 +29,10 @@ from .statistics import (
     DEFAULT_BOOTSTRAP_RESAMPLES,
     DEFAULT_BOOTSTRAP_SEED,
     DEFAULT_CONFIDENCE_LEVEL,
+    benjamini_hochberg_adjust,
     bootstrap_rate_delta_interval,
+    cohens_h_magnitude,
+    cohens_h_rate_delta,
     permutation_rate_delta_test,
 )
 
@@ -669,6 +672,54 @@ def compare(result_a: str, result_b: str, output: Optional[str]) -> None:
             "-",
             f"{float(imp['permutation_p_value_two_sided']):.6f}",
         )
+        table.add_row(
+            "Regression Delta Effect Size (Cohen's h)",
+            "-",
+            "-",
+            f"{float(reg['effect_size_h']):+.6f}",
+        )
+        table.add_row(
+            "Improvement Delta Effect Size (Cohen's h)",
+            "-",
+            "-",
+            f"{float(imp['effect_size_h']):+.6f}",
+        )
+        table.add_row(
+            "Regression Delta Effect Magnitude",
+            "-",
+            "-",
+            str(reg["effect_size_magnitude"]),
+        )
+        table.add_row(
+            "Improvement Delta Effect Magnitude",
+            "-",
+            "-",
+            str(imp["effect_size_magnitude"]),
+        )
+        table.add_row(
+            "Regression Delta FDR p-value",
+            "-",
+            "-",
+            f"{float(reg['fdr_adjusted_p_value']):.6f}",
+        )
+        table.add_row(
+            "Improvement Delta FDR p-value",
+            "-",
+            "-",
+            f"{float(imp['fdr_adjusted_p_value']):.6f}",
+        )
+        table.add_row(
+            "Regression Delta FDR Significant?",
+            "-",
+            "-",
+            "yes" if bool(reg["fdr_significant"]) else "no",
+        )
+        table.add_row(
+            "Improvement Delta FDR Significant?",
+            "-",
+            "-",
+            "yes" if bool(imp["fdr_significant"]) else "no",
+        )
 
     console.print(table)
     if significance_delta is None:
@@ -1027,6 +1078,39 @@ def _print_benchmark_table(summary: dict[str, Any]) -> None:
     else:
         console.print("[green]No benchmark advisories triggered.[/green]")
 
+    extended_significance = summary.get("extended_significance", {})
+    if isinstance(extended_significance, dict):
+        regression = extended_significance.get("regression", {})
+        improvement = extended_significance.get("improvement", {})
+        ext_table = Table(title="Extended Significance (Advisory)")
+        ext_table.add_column("Metric", style="cyan")
+        ext_table.add_column("Value", style="magenta")
+        ext_table.add_row(
+            "Effect Size Method",
+            str(extended_significance.get("effect_size_method", "N/A")),
+        )
+        ext_table.add_row("FDR Method", str(extended_significance.get("fdr_method", "N/A")))
+        ext_table.add_row("FDR Alpha", str(extended_significance.get("alpha", "N/A")))
+        if isinstance(regression, dict):
+            ext_table.add_row(
+                "Regression suites tested",
+                str(regression.get("tested_suites", 0)),
+            )
+            ext_table.add_row(
+                "Regression FDR-significant suites",
+                str(regression.get("fdr_significant_count", 0)),
+            )
+        if isinstance(improvement, dict):
+            ext_table.add_row(
+                "Improvement suites tested",
+                str(improvement.get("tested_suites", 0)),
+            )
+            ext_table.add_row(
+                "Improvement FDR-significant suites",
+                str(improvement.get("fdr_significant_count", 0)),
+            )
+        console.print(ext_table)
+
     suites = summary.get("suites", [])
     if isinstance(suites, list):
         suite_table = Table(title="Benchmark Suite Breakdown")
@@ -1093,6 +1177,34 @@ def _format_benchmark_markdown(summary: dict[str, Any]) -> str:
         lines.append("## Source Reports")
         for path in source_reports:
             lines.append(f"- `{path}`")
+
+    extended_significance = summary.get("extended_significance", {})
+    if isinstance(extended_significance, dict):
+        regression = (
+            extended_significance.get("regression", {})
+            if isinstance(extended_significance.get("regression"), dict)
+            else {}
+        )
+        improvement = (
+            extended_significance.get("improvement", {})
+            if isinstance(extended_significance.get("improvement"), dict)
+            else {}
+        )
+        lines.append("")
+        lines.append("## Extended Significance (Advisory)")
+        lines.append(
+            f"- Effect Size Method: {extended_significance.get('effect_size_method', 'N/A')}"
+        )
+        lines.append(f"- FDR Method: {extended_significance.get('fdr_method', 'N/A')}")
+        lines.append(f"- FDR Alpha: {extended_significance.get('alpha', 'N/A')}")
+        lines.append(f"- Regression suites tested: {regression.get('tested_suites', 0)}")
+        lines.append(
+            f"- Regression FDR-significant suites: {regression.get('fdr_significant_count', 0)}"
+        )
+        lines.append(f"- Improvement suites tested: {improvement.get('tested_suites', 0)}")
+        lines.append(
+            f"- Improvement FDR-significant suites: {improvement.get('fdr_significant_count', 0)}"
+        )
 
     lines.append("")
     lines.append("## Advisories")
@@ -2571,6 +2683,38 @@ def _format_compare_markdown(
             f"| Improvement Delta Permutation p-value | - | - | "
             f"{float(imp['permutation_p_value_two_sided']):.6f} |\n"
         )
+        metrics_table += (
+            f"| Regression Delta Effect Size (Cohen's h) | - | - | "
+            f"{float(reg['effect_size_h']):+.6f} |\n"
+        )
+        metrics_table += (
+            f"| Improvement Delta Effect Size (Cohen's h) | - | - | "
+            f"{float(imp['effect_size_h']):+.6f} |\n"
+        )
+        metrics_table += (
+            f"| Regression Delta Effect Magnitude | - | - | "
+            f"{str(reg['effect_size_magnitude'])} |\n"
+        )
+        metrics_table += (
+            f"| Improvement Delta Effect Magnitude | - | - | "
+            f"{str(imp['effect_size_magnitude'])} |\n"
+        )
+        metrics_table += (
+            f"| Regression Delta FDR p-value | - | - | "
+            f"{float(reg['fdr_adjusted_p_value']):.6f} |\n"
+        )
+        metrics_table += (
+            f"| Improvement Delta FDR p-value | - | - | "
+            f"{float(imp['fdr_adjusted_p_value']):.6f} |\n"
+        )
+        metrics_table += (
+            f"| Regression Delta FDR Significant? | - | - | "
+            f"{'yes' if bool(reg['fdr_significant']) else 'no'} |\n"
+        )
+        metrics_table += (
+            f"| Improvement Delta FDR Significant? | - | - | "
+            f"{'yes' if bool(imp['fdr_significant']) else 'no'} |\n"
+        )
     else:
         metrics_table += "| Significance | - | - | not available (diff_results missing/empty) |\n"
 
@@ -2625,7 +2769,7 @@ def _format_run_rate_ci(rate_payload: Any) -> str | None:
 
 def _compute_compare_significance(
     report_a: BehaviorReport, report_b: BehaviorReport
-) -> dict[str, dict[str, float | bool]] | None:
+) -> dict[str, dict[str, Any]] | None:
     regression_a = [result.is_regression for result in report_a.diff_results]
     regression_b = [result.is_regression for result in report_b.diff_results]
     improvement_a = [result.is_improvement for result in report_a.diff_results]
@@ -2665,15 +2809,41 @@ def _compute_compare_significance(
     ):
         return None
 
+    regression_rate_a = _mean_binary_flags(regression_a)
+    regression_rate_b = _mean_binary_flags(regression_b)
+    improvement_rate_a = _mean_binary_flags(improvement_a)
+    improvement_rate_b = _mean_binary_flags(improvement_b)
+
+    regression_effect_h = cohens_h_rate_delta(regression_rate_a, regression_rate_b)
+    improvement_effect_h = cohens_h_rate_delta(improvement_rate_a, improvement_rate_b)
+
+    adjusted_p_values = benjamini_hochberg_adjust(
+        [
+            float(regression_permutation["p_value_two_sided"]),
+            float(improvement_permutation["p_value_two_sided"]),
+        ],
+        alpha=0.05,
+    )
+    regression_fdr = adjusted_p_values[0]
+    improvement_fdr = adjusted_p_values[1]
+
     regression_payload = {
         **regression_delta,
         "permutation_p_value_two_sided": float(regression_permutation["p_value_two_sided"]),
         "permutation_significant": bool(regression_permutation["significant"]),
+        "effect_size_h": regression_effect_h,
+        "effect_size_magnitude": cohens_h_magnitude(abs(regression_effect_h)),
+        "fdr_adjusted_p_value": float(regression_fdr["adjusted_p_value"]),
+        "fdr_significant": bool(regression_fdr["significant"]),
     }
     improvement_payload = {
         **improvement_delta,
         "permutation_p_value_two_sided": float(improvement_permutation["p_value_two_sided"]),
         "permutation_significant": bool(improvement_permutation["significant"]),
+        "effect_size_h": improvement_effect_h,
+        "effect_size_magnitude": cohens_h_magnitude(abs(improvement_effect_h)),
+        "fdr_adjusted_p_value": float(improvement_fdr["adjusted_p_value"]),
+        "fdr_significant": bool(improvement_fdr["significant"]),
     }
     return {
         "regression_delta": regression_payload,
@@ -2681,10 +2851,16 @@ def _compute_compare_significance(
     }
 
 
-def _format_delta_ci_percent_points(payload: dict[str, float | bool]) -> str:
+def _format_delta_ci_percent_points(payload: dict[str, Any]) -> str:
     ci_low = float(payload["ci_low"]) * 100.0
     ci_high = float(payload["ci_high"]) * 100.0
     return f"[{ci_low:+.2f}, {ci_high:+.2f}] pp"
+
+
+def _mean_binary_flags(values: list[bool]) -> float:
+    if not values:
+        return 0.0
+    return float(sum(1 for value in values if bool(value))) / float(len(values))
 
 
 if __name__ == "__main__":

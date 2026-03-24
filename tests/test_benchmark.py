@@ -59,6 +59,10 @@ def test_build_benchmark_summary_aggregates_core_metrics() -> None:
         "hallucination_new": 1,
         "format_change": 1,
     }
+    assert summary["extended_significance"]["effect_size_method"] == "cohens_h"
+    assert summary["extended_significance"]["fdr_method"] == "benjamini_hochberg"
+    assert summary["extended_significance"]["regression"]["tested_suites"] == 0
+    assert summary["extended_significance"]["improvement"]["tested_suites"] == 0
     assert len(summary["suites"]) == 2
 
 
@@ -110,3 +114,58 @@ def test_build_benchmark_summary_triggers_fixed_quality_pack_advisories() -> Non
 def test_build_benchmark_summary_requires_at_least_one_report() -> None:
     with pytest.raises(ValueError):
         build_benchmark_summary([])
+
+
+def test_build_benchmark_summary_adds_extended_significance_and_effect_advisory() -> None:
+    report_a = BehaviorReport(
+        id="rpt-a",
+        model_a="gpt-4o",
+        model_b="gpt-4.5",
+        suite_name="suite_a",
+        total_tests=10,
+        total_diffs=4,
+        regressions=4,
+        improvements=0,
+        semantic_only_diffs=0,
+        duration_seconds=10.0,
+        metadata={
+            "processed_tests": 10,
+            "failed_tests": 0,
+            "significance": {
+                "regression_rate": {"point": 0.4, "p_value_two_sided": 0.01},
+                "improvement_rate": {"point": 0.0, "p_value_two_sided": 1.0},
+            },
+        },
+    )
+    report_b = BehaviorReport(
+        id="rpt-b",
+        model_a="gpt-4o",
+        model_b="gpt-4.5",
+        suite_name="suite_b",
+        total_tests=10,
+        total_diffs=3,
+        regressions=3,
+        improvements=0,
+        semantic_only_diffs=0,
+        duration_seconds=12.0,
+        metadata={
+            "processed_tests": 10,
+            "failed_tests": 0,
+            "significance": {
+                "regression_rate": {"point": 0.3, "p_value_two_sided": 0.04},
+                "improvement_rate": {"point": 0.0, "p_value_two_sided": 1.0},
+            },
+        },
+    )
+
+    summary = build_benchmark_summary([report_a, report_b])
+    extended = summary["extended_significance"]
+    assert extended["regression"]["tested_suites"] == 2
+    assert extended["regression"]["fdr_significant_count"] == 2
+    assert extended["improvement"]["tested_suites"] == 2
+    advisory_codes = {entry["code"] for entry in summary["quality_pack"]["advisories"]}
+    assert "regression_fdr_effect_signal" in advisory_codes
+
+    suite_rows = summary["suites"]
+    assert suite_rows[0]["extended_significance"]["regression"]["effect_size_magnitude"] == "large"
+    assert suite_rows[0]["extended_significance"]["regression"]["fdr_significant"] is True

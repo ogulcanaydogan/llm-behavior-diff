@@ -19,6 +19,7 @@ STALE_PHRASES = {
     "no external fact api in this version",
     "external factual connector is not implemented",
     "external factual validation is planned",
+    "extended statistical methods beyond bootstrap/wilson/permutation",
 }
 
 
