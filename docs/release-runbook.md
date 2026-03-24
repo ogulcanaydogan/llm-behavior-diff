@@ -21,7 +21,7 @@ This runbook covers manual distribution and model-upgrade gating workflows.
 | --- | --- | --- |
 | `publish-pypi.yml` | OIDC trusted publishing OR `TEST_PYPI_API_TOKEN` / `PYPI_API_TOKEN` fallback | `id-token: write`, `contents: read` |
 | `docker-image.yml` | `GITHUB_TOKEN` (provided by Actions) | `packages: write`, `contents: read` |
-| `model-upgrade-regression.yml` | `OPENAI_API_KEY` and/or `ANTHROPIC_API_KEY` based on model ids; optional `EXPORT_CONNECTOR_API_KEY` for HTTP export dispatch; optional `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` / `AWS_SESSION_TOKEN` for S3 export dispatch; optional Google ADC credential setup for GCS/BigQuery export dispatch; optional Azure identity credential setup for Azure Blob export dispatch; optional `SNOWFLAKE_PASSWORD` for Snowflake export dispatch; optional `REDSHIFT_PASSWORD` for Redshift export dispatch (no extra secret needed for `factual_connector=wikipedia`) | `contents: read` |
+| `model-upgrade-regression.yml` | `OPENAI_API_KEY` and/or `ANTHROPIC_API_KEY` based on model ids; optional `EXPORT_CONNECTOR_API_KEY` for HTTP export dispatch; optional `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` / `AWS_SESSION_TOKEN` for S3 export dispatch; optional Google ADC credential setup for GCS/BigQuery export dispatch; optional Azure identity credential setup for Azure Blob export dispatch; optional `SNOWFLAKE_PASSWORD` for Snowflake export dispatch; optional `REDSHIFT_PASSWORD` for Redshift export dispatch; optional `DATABRICKS_TOKEN` for Databricks export dispatch (no extra secret needed for `factual_connector=wikipedia`) | `contents: read` |
 
 ## 1) Package Publish (Manual)
 
@@ -85,7 +85,7 @@ Inputs:
 - `factual_connector` (optional, default `none`): `none|wikipedia`
 - `factual_connector_timeout` (optional, default `8`)
 - `factual_connector_max_results` (optional, default `3`)
-- `export_connector` (optional, default `none`): `none|http|s3|gcs|bigquery|snowflake|redshift|azure_blob`
+- `export_connector` (optional, default `none`): `none|http|s3|gcs|bigquery|snowflake|redshift|azure_blob|databricks`
 - `export_connector_endpoint` (optional): required when `export_connector=http`
 - `export_connector_timeout` (optional, default `10`)
 - `export_s3_bucket` (optional): required when `export_connector=s3`
@@ -124,6 +124,15 @@ Redshift workflow wiring (env-based, no new workflow input):
 - `EXPORT_RS_TABLE` repository variable is required when `export_connector=redshift`
 - `EXPORT_RS_SSLMODE` repository variable is optional (default `require`)
 - `REDSHIFT_PASSWORD` secret is required when `export_connector=redshift`
+
+Databricks workflow wiring (env-based, no new workflow input):
+
+- `EXPORT_DBX_HOST` repository variable is required when `export_connector=databricks`
+- `EXPORT_DBX_HTTP_PATH` repository variable is required when `export_connector=databricks`
+- `EXPORT_DBX_CATALOG` repository variable is required when `export_connector=databricks`
+- `EXPORT_DBX_SCHEMA` repository variable is required when `export_connector=databricks`
+- `EXPORT_DBX_TABLE` repository variable is required when `export_connector=databricks`
+- `DATABRICKS_TOKEN` secret is required when `export_connector=databricks`
 
 Default suite set when `suite_list` is empty:
 
@@ -196,6 +205,12 @@ Artifacts:
   Redshift (`export_rs_schema.export_rs_table`) using connection fields from repo vars and
   password from `--export-rs-password` or `LLM_DIFF_EXPORT_RS_PASSWORD` (workflow: `REDSHIFT_PASSWORD` secret).
 - Redshift export follows fail-fast semantics: missing config, authentication errors,
+  or row insert errors fail the command/workflow step.
+- When `export_connector=databricks` is enabled, only NDJSON exports are uploaded to
+  Databricks SQL (`export_dbx_catalog.export_dbx_schema.export_dbx_table`) using
+  connection fields from repo vars and token from `--export-dbx-token` or
+  `LLM_DIFF_EXPORT_DBX_TOKEN` (workflow: `DATABRICKS_TOKEN` secret).
+- Databricks export follows fail-fast semantics: missing config, authentication errors,
   or row insert errors fail the command/workflow step.
 - When external factual connector is enabled, reports include metadata-only
   `factual_external` comparator payloads and run-level `factual_external_summary`.

@@ -2175,6 +2175,232 @@ def test_report_redshift_export_connector_rejects_non_ndjson_format(tmp_path: Pa
     assert "supports only --format ndjson" in result.output
 
 
+def test_report_databricks_export_connector_success_with_env_token(
+    tmp_path: Path, monkeypatch
+) -> None:
+    report_path = tmp_path / "report_databricks_export.json"
+    ndjson_path = tmp_path / "report_databricks_export.ndjson"
+    captured: dict[str, object] = {}
+
+    report = BehaviorReport(
+        model_a="gpt-4o",
+        model_b="gpt-4.5",
+        suite_name="suite_databricks_export",
+        total_tests=1,
+        total_diffs=1,
+        regressions=0,
+        improvements=1,
+        duration_seconds=0.4,
+        diff_results=[
+            DiffResult(
+                test_id="dbx_001",
+                model_a="gpt-4o",
+                model_b="gpt-4.5",
+                response_a="a",
+                response_b="b",
+                is_semantically_same=False,
+                semantic_similarity=0.11,
+                behavior_category=BehaviorCategory.KNOWLEDGE_CHANGE,
+                is_regression=False,
+                is_improvement=True,
+                confidence=0.8,
+                explanation="improvement",
+                metadata={"comparator": "semantic"},
+            )
+        ],
+    )
+    report_path.write_text(json.dumps(report.model_dump(mode="json"), indent=2), encoding="utf-8")
+
+    class FakeCursor:
+        def executemany(self, query: str, rows: list[dict[str, object]]) -> None:
+            captured["query"] = query
+            captured["rows"] = rows
+
+        def close(self) -> None:
+            captured["cursor_closed"] = True
+
+    class FakeConnection:
+        def cursor(self) -> FakeCursor:
+            captured["cursor_opened"] = True
+            return FakeCursor()
+
+        def commit(self) -> None:
+            captured["committed"] = True
+
+        def close(self) -> None:
+            captured["connection_closed"] = True
+
+    def fake_create_databricks_connection(**kwargs):
+        captured["connect_kwargs"] = kwargs
+        return FakeConnection()
+
+    monkeypatch.setenv("LLM_DIFF_EXPORT_DBX_TOKEN", "dbx-secret")
+    monkeypatch.setattr(
+        "llm_behavior_diff.cli._create_databricks_connection", fake_create_databricks_connection
+    )
+
+    result = CliRunner().invoke(
+        main,
+        [
+            "report",
+            str(report_path),
+            "--format",
+            "ndjson",
+            "--output",
+            str(ndjson_path),
+            "--export-connector",
+            "databricks",
+            "--export-dbx-host",
+            "dbc-123.cloud.databricks.com",
+            "--export-dbx-http-path",
+            "/sql/1.0/endpoints/abc123",
+            "--export-dbx-catalog",
+            "main",
+            "--export-dbx-schema",
+            "llm_diff",
+            "--export-dbx-table",
+            "diff_rows",
+            "--export-timeout",
+            "6",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert "External export delivered" in result.output
+
+    connect_kwargs = captured["connect_kwargs"]
+    assert isinstance(connect_kwargs, dict)
+    assert connect_kwargs["host"] == "dbc-123.cloud.databricks.com"
+    assert connect_kwargs["http_path"] == "/sql/1.0/endpoints/abc123"
+    assert connect_kwargs["token"] == "dbx-secret"
+    assert connect_kwargs["timeout_seconds"] == 6.0
+
+    query = captured["query"]
+    assert isinstance(query, str)
+    assert 'INSERT INTO "main"."llm_diff"."diff_rows"' in query
+    rows = captured["rows"]
+    assert isinstance(rows, list)
+    assert len(rows) == 1
+    assert rows[0]["test_id"] == "dbx_001"
+    assert rows[0]["metadata_json"] == '{"comparator": "semantic"}'
+    assert captured["committed"] is True
+    assert captured["cursor_closed"] is True
+    assert captured["connection_closed"] is True
+
+
+def test_report_databricks_export_connector_requires_fields(tmp_path: Path, monkeypatch) -> None:
+    report_path = tmp_path / "report_databricks_export_missing_fields.json"
+    ndjson_path = tmp_path / "report_databricks_export_missing_fields.ndjson"
+    report = BehaviorReport(
+        model_a="gpt-4o",
+        model_b="gpt-4.5",
+        suite_name="suite_databricks_export",
+        total_tests=0,
+        total_diffs=0,
+        regressions=0,
+        improvements=0,
+        duration_seconds=0.0,
+    )
+    report_path.write_text(json.dumps(report.model_dump(mode="json"), indent=2), encoding="utf-8")
+
+    monkeypatch.delenv("LLM_DIFF_EXPORT_DBX_TOKEN", raising=False)
+
+    base_args = [
+        "report",
+        str(report_path),
+        "--format",
+        "ndjson",
+        "--output",
+        str(ndjson_path),
+        "--export-connector",
+        "databricks",
+    ]
+
+    missing_host = CliRunner().invoke(
+        main,
+        [
+            *base_args,
+            "--export-dbx-http-path",
+            "/sql/1.0/endpoints/abc123",
+            "--export-dbx-catalog",
+            "main",
+            "--export-dbx-schema",
+            "llm_diff",
+            "--export-dbx-table",
+            "diff_rows",
+            "--export-dbx-token",
+            "dbx-secret",
+        ],
+    )
+    assert missing_host.exit_code == 1
+    assert "export_dbx_host is required" in missing_host.output
+
+    missing_token = CliRunner().invoke(
+        main,
+        [
+            *base_args,
+            "--export-dbx-host",
+            "dbc-123.cloud.databricks.com",
+            "--export-dbx-http-path",
+            "/sql/1.0/endpoints/abc123",
+            "--export-dbx-catalog",
+            "main",
+            "--export-dbx-schema",
+            "llm_diff",
+            "--export-dbx-table",
+            "diff_rows",
+        ],
+    )
+    assert missing_token.exit_code == 1
+    assert "Databricks token is required" in missing_token.output
+
+
+def test_report_databricks_export_connector_rejects_non_ndjson_format(
+    tmp_path: Path, monkeypatch
+) -> None:
+    report_path = tmp_path / "report_databricks_export_non_ndjson.json"
+    csv_path = tmp_path / "report_databricks_export_non_ndjson.csv"
+    report = BehaviorReport(
+        model_a="gpt-4o",
+        model_b="gpt-4.5",
+        suite_name="suite_databricks_export",
+        total_tests=0,
+        total_diffs=0,
+        regressions=0,
+        improvements=0,
+        duration_seconds=0.0,
+    )
+    report_path.write_text(json.dumps(report.model_dump(mode="json"), indent=2), encoding="utf-8")
+    monkeypatch.setenv("LLM_DIFF_EXPORT_DBX_TOKEN", "dbx-secret")
+
+    result = CliRunner().invoke(
+        main,
+        [
+            "report",
+            str(report_path),
+            "--format",
+            "csv",
+            "--output",
+            str(csv_path),
+            "--export-connector",
+            "databricks",
+            "--export-dbx-host",
+            "dbc-123.cloud.databricks.com",
+            "--export-dbx-http-path",
+            "/sql/1.0/endpoints/abc123",
+            "--export-dbx-catalog",
+            "main",
+            "--export-dbx-schema",
+            "llm_diff",
+            "--export-dbx-table",
+            "diff_rows",
+        ],
+    )
+
+    assert result.exit_code == 1
+    assert "supports only --format ndjson" in result.output
+
+
 def test_report_export_connector_rejects_table_format(tmp_path: Path, monkeypatch) -> None:
     report_path = tmp_path / "report_table_export.json"
     report = BehaviorReport(

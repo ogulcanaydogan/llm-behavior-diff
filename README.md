@@ -46,7 +46,7 @@ Ad-hoc prompt checks miss these patterns and are hard to reproduce in CI.
 - Single-suite run command with retry/rate-limit/cost controls
 - JSON report artifacts for CI and governance workflows
 - Report rendering in `table`, `json`, `markdown`, `csv`, `ndjson`, `junit`, and interactive self-contained `html`
-- Optional direct export connectors for rendered reports (`--export-connector http|s3|gcs|bigquery|snowflake|redshift|azure_blob`)
+- Optional direct export connectors for rendered reports (`--export-connector http|s3|gcs|bigquery|snowflake|redshift|azure_blob|databricks`)
 - Run-to-run compare command with delta metrics
 - Policy gate command for deterministic release decisions (`strict|balanced|permissive`)
 - Advisory benchmark command for report artifacts (`llm-diff benchmark`)
@@ -79,6 +79,7 @@ export LLM_DIFF_LOCAL_BASE_URL=http://localhost:11434/v1
 # export AZURE_CLIENT_SECRET=...  # optional DefaultAzureCredential chain input
 # export LLM_DIFF_EXPORT_SF_PASSWORD=...  # optional Snowflake export password
 # export LLM_DIFF_EXPORT_RS_PASSWORD=...  # optional Redshift export password
+# export LLM_DIFF_EXPORT_DBX_TOKEN=...    # optional Databricks PAT token
 ```
 
 ### 2) Create a suite
@@ -172,6 +173,13 @@ llm-diff report run_report.json --format markdown -o run_report.md \
   --export-az-account-url https://myaccount.blob.core.windows.net \
   --export-az-container llm-diff-exports \
   --export-az-prefix team-a/exports
+llm-diff report run_report.json --format ndjson -o run_report.ndjson \
+  --export-connector databricks \
+  --export-dbx-host dbc-123.cloud.databricks.com \
+  --export-dbx-http-path /sql/1.0/endpoints/abc123 \
+  --export-dbx-catalog main \
+  --export-dbx-schema llm_diff \
+  --export-dbx-table diff_rows
 ```
 
 ### 6) Compare two runs
@@ -292,6 +300,7 @@ Optional direct export connectors:
 - BigQuery (NDJSON only): `--export-connector bigquery --format ndjson --export-bq-project ... --export-bq-dataset ... --export-bq-table ... [--export-bq-location ...]`
 - Snowflake (NDJSON only): `--export-connector snowflake --format ndjson --export-sf-account ... --export-sf-user ... --export-sf-warehouse ... --export-sf-database ... --export-sf-schema ... --export-sf-table ... [--export-sf-role ...]` (`--export-sf-password` or `LLM_DIFF_EXPORT_SF_PASSWORD`)
 - Redshift (NDJSON only): `--export-connector redshift --format ndjson --export-rs-host ... --export-rs-port 5439 --export-rs-database ... --export-rs-user ... --export-rs-schema ... --export-rs-table ... [--export-rs-sslmode ...]` (`--export-rs-password` or `LLM_DIFF_EXPORT_RS_PASSWORD`)
+- Databricks SQL (NDJSON only): `--export-connector databricks --format ndjson --export-dbx-host ... --export-dbx-http-path ... --export-dbx-catalog ... --export-dbx-schema ... --export-dbx-table ...` (`--export-dbx-token` or `LLM_DIFF_EXPORT_DBX_TOKEN`)
 
 ### `llm-diff compare`
 
@@ -321,7 +330,7 @@ Builds artifact-first benchmark quality summaries from one or more report JSON f
 - `release-check.yml`: build/twine/wheel smoke checks
 - `publish-pypi.yml`: manual TestPyPI/PyPI publish flow
 - `docker-image.yml`: PR/master build+smoke, optional manual GHCR push
-- `model-upgrade-regression.yml`: manual/reusable regression gate (`gate_policy`, `gate_policy_pack`, optional `gate_policy_file`; optional factual connector inputs; default `strict + core`) + per-suite export artifacts (`csv`, `ndjson`, `junit`) + optional direct export connectors (`http|s3|gcs|bigquery|snowflake|redshift|azure_blob`; `gcs`, `redshift`, and `azure_blob` values are env-based via repo vars/secrets)
+- `model-upgrade-regression.yml`: manual/reusable regression gate (`gate_policy`, `gate_policy_pack`, optional `gate_policy_file`; optional factual connector inputs; default `strict + core`) + per-suite export artifacts (`csv`, `ndjson`, `junit`) + optional direct export connectors (`http|s3|gcs|bigquery|snowflake|redshift|azure_blob|databricks`; `gcs`, `redshift`, `azure_blob`, and `databricks` values are env-based via repo vars/secrets)
 - `model-upgrade-regression.yml` also emits always-on benchmark artifacts (`artifacts/benchmark/benchmark.json`, `artifacts/benchmark/benchmark.md`) from generated suite report JSONs
 - Node24 deprecation closure: workflows keep `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24=true` and now run on Node24-ready major action pins.
 - Workflow security hardening: all third-party actions are pinned to full commit SHAs; Dependabot auto-updates `github-actions` minor/patch versions weekly, while major bumps are handled in planned maintenance windows.
@@ -360,7 +369,7 @@ Implemented now:
 - risk-tier gate policies (CLI + model-upgrade workflow)
 - artifact-first benchmark quality pack (advisory-only)
 - enterprise-ready report export artifacts (`csv`, `ndjson`, `junit`)
-- optional direct export connectors (`http`, `s3`, `gcs`, `bigquery`, `snowflake`, `redshift`, `azure_blob`; `gcs`/`azure_blob` support all non-table formats, `bigquery`/`snowflake`/`redshift` are NDJSON-only)
+- optional direct export connectors (`http`, `s3`, `gcs`, `bigquery`, `snowflake`, `redshift`, `azure_blob`, `databricks`; `gcs`/`azure_blob` support all non-table formats, `bigquery`/`snowflake`/`redshift`/`databricks` are NDJSON-only)
 - suite templates and CI distribution workflows
 
 Committed roadmap status:
@@ -369,7 +378,7 @@ Committed roadmap status:
 
 Future exploration candidates (not committed yet):
 
-- additional provider-specific external sinks beyond the current set (`http`, `s3`, `gcs`, `bigquery`, `snowflake`, `redshift`, `azure_blob`)
+- additional provider-specific external sinks beyond the current set (`http`, `s3`, `gcs`, `bigquery`, `snowflake`, `redshift`, `azure_blob`, `databricks`)
 - extended statistical methods beyond bootstrap/Wilson/permutation
 
 ## Contributing
