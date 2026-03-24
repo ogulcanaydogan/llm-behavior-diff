@@ -94,13 +94,13 @@ Implemented:
 
 ## Known Limits
 
-- factual classification remains deterministic; external connector is metadata-only and non-overriding
+- factual classification remains deterministic; optional external factual connector (`--factual-connector wikipedia`) is metadata-only and non-overriding
 - significance layer is metadata-only (does not enforce pass/fail by itself)
 - advanced methods beyond bootstrap/Wilson/permutation are not included in this version
 
 ## Future Exploration (Not Committed Roadmap)
 
-- broader enterprise reporting/export integrations
+- additional provider-specific export sinks beyond the current set
 - additional statistical methods beyond bootstrap/Wilson/permutation
 
 ## If You Want to Try It

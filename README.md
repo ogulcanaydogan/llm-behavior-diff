@@ -369,7 +369,8 @@ Committed roadmap status:
 
 Future exploration candidates (not committed yet):
 
-- additional provider-specific external sinks beyond `s3`, `gcs`, `bigquery`, `snowflake`, and `redshift` (for example warehouse-native connectors)
+- additional provider-specific external sinks beyond the current set (`http`, `s3`, `gcs`, `bigquery`, `snowflake`, `redshift`, `azure_blob`)
+- extended statistical methods beyond bootstrap/Wilson/permutation
 
 ## Contributing
 
