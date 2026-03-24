@@ -52,6 +52,7 @@ llm-diff benchmark report.json --format table
   `litellm:<model_ref>` and `local:<model_ref>`.
 - One `--suite` file is processed per `run` command.
 - Optional LLM-as-judge is implemented via `--judge-model` as metadata-only signal.
+- Optional external factual connector is implemented via `--factual-connector wikipedia` as metadata-only signal.
 - Bootstrap + Wilson statistical intervals are implemented in run metadata.
 - Compare output includes bootstrap delta CI + permutation p-value.
 - Launch kit content tracks current implementation state (not historical snapshots).

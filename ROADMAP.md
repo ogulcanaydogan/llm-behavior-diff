@@ -118,7 +118,7 @@ The `git diff` for LLM behavior. When you upgrade a model version, know exactly 
 - [x] Model-upgrade workflow parity with always-on benchmark artifact outputs
 
 ## Current Status
-No open committed roadmap items at this time. GA baseline is `v1.0.0`; future work will be tracked as new phases when prioritized.
+No open committed roadmap items at this time. GA baseline is `v1.0.0`; future exploration is tracked as non-committed candidates and promoted into new phases only when prioritized.
 
 ## Success Metrics
 - Can compare any two LLM versions in under 30 minutes for 100 test cases

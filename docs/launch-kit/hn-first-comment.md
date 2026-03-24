@@ -8,7 +8,7 @@ A few transparent notes for context:
 - `--judge-model` is implemented as optional metadata-only signal.
 - Judge runs only on semantic-diff tests, is non-fatal on errors, and never overrides final deterministic flags.
 - Run metadata includes bootstrap + Wilson intervals; compare includes bootstrap delta CI and permutation p-values.
-- Factual checks are heuristic/deterministic (no external fact API in this version).
+- Factual checks are heuristic/deterministic, with optional external factual evidence via `--factual-connector wikipedia` (metadata-only, non-overriding).
 
 What I optimized for:
 
@@ -18,7 +18,8 @@ What I optimized for:
 
 Future exploration (not committed in the current roadmap):
 
-- broader enterprise reporting/export integrations
+- additional provider-specific export sinks beyond the current set
+- additional statistical methods beyond bootstrap/Wilson/permutation
 
 If you run model-upgrade gates in production, I’d value specifics on:
 
