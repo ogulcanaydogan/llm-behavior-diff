@@ -582,6 +582,7 @@ def test_benchmark_table_json_markdown_outputs_and_advisory_exit_code_zero(tmp_p
     assert table_result.exit_code == 0
     assert "Benchmark Summary (Advisory-Only)" in table_result.output
     assert "Quality Pack Advisories" in table_result.output
+    assert "Extended Significance (Advisory)" in table_result.output
 
     json_result = CliRunner().invoke(
         main,
@@ -600,6 +601,7 @@ def test_benchmark_table_json_markdown_outputs_and_advisory_exit_code_zero(tmp_p
     assert summary_payload["quality_pack"]["advisory_only"] is True
     assert summary_payload["total_reports"] == 2
     assert summary_payload["total_failed_tests"] == 1
+    assert summary_payload["extended_significance"]["fdr_method"] == "benjamini_hochberg"
     assert summary_payload["source_reports"] == [str(report_a_path), str(report_b_path)]
 
     markdown_result = CliRunner().invoke(
@@ -618,6 +620,7 @@ def test_benchmark_table_json_markdown_outputs_and_advisory_exit_code_zero(tmp_p
     markdown_content = summary_md_path.read_text(encoding="utf-8")
     assert "# Benchmark Summary" in markdown_content
     assert "Mode: advisory-only" in markdown_content
+    assert "## Extended Significance (Advisory)" in markdown_content
     assert "| Suite | Tests | Processed | Failed |" in markdown_content
     assert "high_unknown_rate" in markdown_content
 
@@ -2573,6 +2576,10 @@ def test_compare_includes_significance_rows_when_diff_results_available(tmp_path
     assert "Improvement Delta Significant?" in compare_content
     assert "Regression Delta Permutation p-value" in compare_content
     assert "Improvement Delta Permutation p-value" in compare_content
+    assert "Regression Delta Effect Size (Cohen's h)" in compare_content
+    assert "Regression Delta FDR p-value" in compare_content
+    assert "Regression Delta Effect Magnitude" in compare_content
+    assert "Improvement Delta FDR Significant?" in compare_content
 
 
 def test_compare_significance_fallback_when_diff_results_missing(tmp_path: Path) -> None:

@@ -2,11 +2,21 @@
 
 from __future__ import annotations
 
+import sys
 from types import SimpleNamespace
 
 import pytest
 
 from llm_behavior_diff.adapters.litellm_adapter import LiteLLMAdapter
+
+
+@pytest.fixture(autouse=True)
+def _stub_litellm_module(monkeypatch: pytest.MonkeyPatch) -> None:
+    async def fake_acompletion(**kwargs):
+        del kwargs
+        raise RuntimeError("unexpected default litellm call")
+
+    monkeypatch.setitem(sys.modules, "litellm", SimpleNamespace(acompletion=fake_acompletion))
 
 
 @pytest.mark.asyncio

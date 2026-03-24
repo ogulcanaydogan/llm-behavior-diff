@@ -1,8 +1,13 @@
 """Tests for significance utilities."""
 
+import pytest
+
 from llm_behavior_diff.statistics import (
+    benjamini_hochberg_adjust,
     bootstrap_rate_delta_interval,
     bootstrap_rate_interval,
+    cohens_h_magnitude,
+    cohens_h_rate_delta,
     permutation_rate_delta_test,
     wilson_rate_interval,
 )
@@ -122,3 +127,40 @@ def test_permutation_rate_delta_test_strong_signal_is_significant() -> None:
 def test_permutation_rate_delta_test_returns_none_when_inputs_empty() -> None:
     assert permutation_rate_delta_test([], [1, 0, 1], seed=42) is None
     assert permutation_rate_delta_test([1, 0, 1], [], seed=42) is None
+
+
+def test_cohens_h_rate_delta_and_magnitude() -> None:
+    effect_h = cohens_h_rate_delta(0.0, 0.25)
+    assert effect_h == pytest.approx(1.0471975512, rel=1e-6)
+    assert cohens_h_magnitude(abs(effect_h)) == "large"
+
+
+def test_cohens_h_magnitude_thresholds() -> None:
+    assert cohens_h_magnitude(0.0) == "negligible"
+    assert cohens_h_magnitude(0.19) == "negligible"
+    assert cohens_h_magnitude(0.2) == "small"
+    assert cohens_h_magnitude(0.49) == "small"
+    assert cohens_h_magnitude(0.5) == "medium"
+    assert cohens_h_magnitude(0.79) == "medium"
+    assert cohens_h_magnitude(0.8) == "large"
+
+
+def test_benjamini_hochberg_adjust_is_deterministic_and_preserves_order() -> None:
+    first = benjamini_hochberg_adjust([0.01, 0.03, 0.2], alpha=0.05)
+    second = benjamini_hochberg_adjust([0.01, 0.03, 0.2], alpha=0.05)
+    assert first == second
+    assert len(first) == 3
+    assert first[0]["adjusted_p_value"] == pytest.approx(0.03, rel=1e-6)
+    assert first[1]["adjusted_p_value"] == pytest.approx(0.045, rel=1e-6)
+    assert first[2]["adjusted_p_value"] == pytest.approx(0.2, rel=1e-6)
+    assert first[0]["significant"] is True
+    assert first[1]["significant"] is True
+    assert first[2]["significant"] is False
+
+
+def test_benjamini_hochberg_adjust_handles_edge_cases() -> None:
+    assert benjamini_hochberg_adjust([]) == []
+    tied = benjamini_hochberg_adjust([0.02, 0.02], alpha=0.05)
+    assert len(tied) == 2
+    assert tied[0]["adjusted_p_value"] == pytest.approx(0.02, rel=1e-6)
+    assert tied[1]["adjusted_p_value"] == pytest.approx(0.02, rel=1e-6)

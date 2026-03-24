@@ -74,6 +74,6 @@
   - `gcs` and `azure_blob` support all non-table formats (`azure_blob` via `DefaultAzureCredential`); `bigquery`, `snowflake`, `redshift`, and `databricks` are NDJSON-only.
   - connector uploads are fail-fast when connector-specific validation/auth/upload fails.
 - `compare` renders run-to-run metric deltas and optional markdown output.
-- `compare` also computes bootstrap delta CI + permutation p-value from per-test outcomes when both reports include `diff_results`.
+- `compare` also computes bootstrap delta CI + permutation p-value + effect size (Cohen's h) + BH-FDR-adjusted significance from per-test outcomes when both reports include `diff_results`.
 - `gate` evaluates one JSON report with selected tier + pack/file policy and returns CI-friendly exit codes.
-- `benchmark` evaluates one or more JSON reports and returns advisory-only quality summaries (table/json/markdown).
+- `benchmark` evaluates one or more JSON reports and returns advisory-only quality summaries (table/json/markdown), including extended significance summaries (effect size + BH-FDR) when run metadata supports it.

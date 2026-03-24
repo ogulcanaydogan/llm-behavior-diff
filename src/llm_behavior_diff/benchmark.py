@@ -6,10 +6,13 @@ from statistics import median
 from typing import Any, Iterable, Sequence
 
 from .schema import BehaviorReport, DiffResult
+from .statistics import benjamini_hochberg_adjust, cohens_h_magnitude, cohens_h_rate_delta
 
 CRITICAL_REGRESSION_CATEGORIES = ("safety_boundary", "hallucination_new", "format_change")
 UNKNOWN_RATE_ADVISORY_THRESHOLD_PCT = 10.0
 RUNTIME_OUTLIER_MULTIPLIER = 1.75
+FDR_ALPHA = 0.05
+NON_NEGLIGIBLE_MAGNITUDES = {"small", "medium", "large"}
 
 
 def _category_value(raw_category: Any) -> str:
@@ -32,6 +35,105 @@ def _to_non_negative_int(value: Any, default: int = 0) -> int:
     if isinstance(value, float) and value.is_integer():
         return max(int(value), 0)
     return default
+
+
+def _to_probability(value: Any) -> float | None:
+    if isinstance(value, bool):
+        return None
+    if not isinstance(value, (int, float)):
+        return None
+    return min(1.0, max(0.0, float(value)))
+
+
+def _extract_significance_metric(
+    report: BehaviorReport, metric_key: str
+) -> tuple[float | None, float | None]:
+    significance = report.metadata.get("significance")
+    if not isinstance(significance, dict):
+        return None, None
+
+    metric = significance.get(metric_key)
+    if not isinstance(metric, dict):
+        return None, None
+
+    point = _to_probability(metric.get("point"))
+    p_value = _to_probability(metric.get("p_value_two_sided"))
+    return point, p_value
+
+
+def _build_extended_suite_significance(report: BehaviorReport) -> dict[str, Any]:
+    regression_point, regression_p = _extract_significance_metric(report, "regression_rate")
+    improvement_point, improvement_p = _extract_significance_metric(report, "improvement_rate")
+
+    regression_effect_h = (
+        cohens_h_rate_delta(0.0, regression_point) if regression_point is not None else None
+    )
+    improvement_effect_h = (
+        cohens_h_rate_delta(0.0, improvement_point) if improvement_point is not None else None
+    )
+
+    return {
+        "regression": {
+            "point": regression_point,
+            "p_value_two_sided": regression_p,
+            "effect_size_h": regression_effect_h,
+            "effect_size_magnitude": (
+                cohens_h_magnitude(abs(regression_effect_h))
+                if regression_effect_h is not None
+                else None
+            ),
+            "fdr_adjusted_p_value": None,
+            "fdr_significant": None,
+        },
+        "improvement": {
+            "point": improvement_point,
+            "p_value_two_sided": improvement_p,
+            "effect_size_h": improvement_effect_h,
+            "effect_size_magnitude": (
+                cohens_h_magnitude(abs(improvement_effect_h))
+                if improvement_effect_h is not None
+                else None
+            ),
+            "fdr_adjusted_p_value": None,
+            "fdr_significant": None,
+        },
+    }
+
+
+def _apply_fdr_to_suite_rows(
+    suite_rows: list[dict[str, Any]], metric_key: str
+) -> tuple[int, int, list[str]]:
+    indexed_p_values: list[tuple[int, float]] = []
+    for index, row in enumerate(suite_rows):
+        payload = row.get("extended_significance", {}).get(metric_key, {})
+        p_value = (
+            _to_probability(payload.get("p_value_two_sided")) if isinstance(payload, dict) else None
+        )
+        if p_value is not None:
+            indexed_p_values.append((index, p_value))
+
+    if not indexed_p_values:
+        return 0, 0, []
+
+    adjusted = benjamini_hochberg_adjust(
+        [p_value for _, p_value in indexed_p_values],
+        alpha=FDR_ALPHA,
+    )
+
+    significant_suites: list[str] = []
+    for adjusted_index, (row_index, _) in enumerate(indexed_p_values):
+        row = suite_rows[row_index]
+        payload = row.get("extended_significance", {}).get(metric_key, {})
+        if not isinstance(payload, dict):
+            continue
+        adjusted_p = float(adjusted[adjusted_index]["adjusted_p_value"])
+        fdr_significant = bool(adjusted[adjusted_index]["significant"])
+        payload["fdr_adjusted_p_value"] = adjusted_p
+        payload["fdr_significant"] = fdr_significant
+        if fdr_significant:
+            significant_suites.append(str(row.get("suite_name", "unknown")))
+
+    return len(indexed_p_values), len(significant_suites), sorted(significant_suites)
 
 
 def _is_unknown_diff(result: DiffResult) -> bool:
@@ -99,6 +201,7 @@ def _suite_metrics(report: BehaviorReport) -> dict[str, Any]:
     )
 
     critical = _count_critical_regressions(report)
+    extended_significance = _build_extended_suite_significance(report)
 
     return {
         "report_id": str(report.id),
@@ -117,6 +220,7 @@ def _suite_metrics(report: BehaviorReport) -> dict[str, Any]:
         "semantic_only_rate_pct": _rate_pct(semantic_only, total_tests),
         "unknown_rate_pct": _rate_pct(unknown, total_tests),
         "critical_regressions": critical,
+        "extended_significance": extended_significance,
         "advisories": [],
     }
 
@@ -163,6 +267,34 @@ def build_benchmark_summary(reports: Sequence[BehaviorReport]) -> dict[str, Any]
             continue
         for category in CRITICAL_REGRESSION_CATEGORIES:
             critical_totals[category] += _to_non_negative_int(critical.get(category))
+
+    (
+        tested_regression_suites,
+        regression_fdr_significant_count,
+        regression_fdr_significant_suites,
+    ) = _apply_fdr_to_suite_rows(suite_rows, "regression")
+    (
+        tested_improvement_suites,
+        improvement_fdr_significant_count,
+        improvement_fdr_significant_suites,
+    ) = _apply_fdr_to_suite_rows(suite_rows, "improvement")
+
+    missing_regression_significance_suites = sorted(
+        str(row.get("suite_name", "unknown"))
+        for row in suite_rows
+        if _to_probability(
+            row.get("extended_significance", {}).get("regression", {}).get("p_value_two_sided")
+        )
+        is None
+    )
+    missing_improvement_significance_suites = sorted(
+        str(row.get("suite_name", "unknown"))
+        for row in suite_rows
+        if _to_probability(
+            row.get("extended_significance", {}).get("improvement", {}).get("p_value_two_sided")
+        )
+        is None
+    )
 
     advisories: list[dict[str, Any]] = []
     if total_failed_tests > 0:
@@ -212,6 +344,30 @@ def build_benchmark_summary(reports: Sequence[BehaviorReport]) -> dict[str, Any]
             }
         )
 
+    regression_effect_signal_suites: list[str] = []
+    for row in suite_rows:
+        regression_significance = row.get("extended_significance", {}).get("regression", {})
+        if not isinstance(regression_significance, dict):
+            continue
+        if regression_significance.get("fdr_significant") is not True:
+            continue
+        magnitude = str(regression_significance.get("effect_size_magnitude", ""))
+        if magnitude not in NON_NEGLIGIBLE_MAGNITUDES:
+            continue
+        regression_effect_signal_suites.append(str(row.get("suite_name", "unknown")))
+
+    if regression_effect_signal_suites:
+        advisories.append(
+            {
+                "code": "regression_fdr_effect_signal",
+                "message": (
+                    "Regression suites with FDR-significant signal and non-negligible effect size."
+                ),
+                "suites": sorted(regression_effect_signal_suites),
+                "alpha": FDR_ALPHA,
+            }
+        )
+
     return {
         "quality_pack": {
             "name": "fixed_v1",
@@ -233,6 +389,23 @@ def build_benchmark_summary(reports: Sequence[BehaviorReport]) -> dict[str, Any]
         "semantic_only_rate_pct": _rate_pct(total_semantic_only, total_tests),
         "unknown_rate_pct": unknown_rate_pct,
         "critical_regressions": critical_totals,
+        "extended_significance": {
+            "effect_size_method": "cohens_h",
+            "fdr_method": "benjamini_hochberg",
+            "alpha": FDR_ALPHA,
+            "regression": {
+                "tested_suites": tested_regression_suites,
+                "fdr_significant_count": regression_fdr_significant_count,
+                "fdr_significant_suites": regression_fdr_significant_suites,
+                "missing_suites": missing_regression_significance_suites,
+            },
+            "improvement": {
+                "tested_suites": tested_improvement_suites,
+                "fdr_significant_count": improvement_fdr_significant_count,
+                "fdr_significant_suites": improvement_fdr_significant_suites,
+                "missing_suites": missing_improvement_significance_suites,
+            },
+        },
         "suites": suite_rows,
     }
 
