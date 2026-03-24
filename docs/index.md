@@ -54,6 +54,7 @@ llm-diff benchmark report.json --format table
 - Optional LLM-as-judge is implemented via `--judge-model` as metadata-only signal.
 - Optional external factual connector is implemented via `--factual-connector wikipedia` as metadata-only signal.
 - Bootstrap + Wilson statistical intervals are implemented in run metadata.
-- Compare output includes bootstrap delta CI + permutation p-value.
+- Compare output includes bootstrap delta CI + permutation p-value + effect size + BH-FDR.
+- Benchmark output includes advisory-only extended significance summaries when report metadata is available.
 - Launch kit content tracks current implementation state (not historical snapshots).
 - No open committed roadmap items currently; future items are tracked as new phases.

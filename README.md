@@ -47,9 +47,9 @@ Ad-hoc prompt checks miss these patterns and are hard to reproduce in CI.
 - JSON report artifacts for CI and governance workflows
 - Report rendering in `table`, `json`, `markdown`, `csv`, `ndjson`, `junit`, and interactive self-contained `html`
 - Optional direct export connectors for rendered reports (`--export-connector http|s3|gcs|bigquery|snowflake|redshift|azure_blob|databricks`)
-- Run-to-run compare command with delta metrics
+- Run-to-run compare command with delta metrics + bootstrap CI + permutation p-value + effect size + FDR
 - Policy gate command for deterministic release decisions (`strict|balanced|permissive`)
-- Advisory benchmark command for report artifacts (`llm-diff benchmark`)
+- Advisory benchmark command for report artifacts (`llm-diff benchmark`) with extended significance summary
 
 ## Installation
 
@@ -304,7 +304,7 @@ Optional direct export connectors:
 
 ### `llm-diff compare`
 
-Compare two run reports and print/write metric deltas.
+Compare two run reports and print/write metric deltas, bootstrap CI, permutation p-values, effect size (Cohen's h), and FDR-adjusted significance.
 
 ### `llm-diff gate`
 
@@ -322,6 +322,7 @@ Builds artifact-first benchmark quality summaries from one or more report JSON f
 
 - `llm-diff benchmark <report_json...> --format table|json|markdown`
 - advisory-only output (does not affect gate pass/fail)
+- includes extended significance summary (effect size + BH-FDR) when report metadata is available
 - fixed checks include failed tests, critical factual/safety regressions, unknown-rate, and runtime outliers
 
 ## Release & CI
@@ -365,9 +366,9 @@ Implemented now:
 - optional external factual connector (`wikipedia`, metadata-only, opt-in)
 - retry/rate-limit/cost tracking
 - bootstrap + Wilson confidence intervals (run metadata)
-- bootstrap delta CI + permutation p-value (compare rows)
+- bootstrap delta CI + permutation p-value + effect size + FDR (compare rows)
 - risk-tier gate policies (CLI + model-upgrade workflow)
-- artifact-first benchmark quality pack (advisory-only)
+- artifact-first benchmark quality pack (advisory-only, with extended significance summary)
 - enterprise-ready report export artifacts (`csv`, `ndjson`, `junit`)
 - optional direct export connectors (`http`, `s3`, `gcs`, `bigquery`, `snowflake`, `redshift`, `azure_blob`, `databricks`; `gcs`/`azure_blob` support all non-table formats, `bigquery`/`snowflake`/`redshift`/`databricks` are NDJSON-only)
 - suite templates and CI distribution workflows
@@ -379,7 +380,6 @@ Committed roadmap status:
 Future exploration candidates (not committed yet):
 
 - additional provider-specific external sinks beyond the current set (`http`, `s3`, `gcs`, `bigquery`, `snowflake`, `redshift`, `azure_blob`, `databricks`)
-- extended statistical methods beyond bootstrap/Wilson/permutation
 
 ## Contributing
 

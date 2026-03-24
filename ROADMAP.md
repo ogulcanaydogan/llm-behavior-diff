@@ -118,6 +118,11 @@ The `git diff` for LLM behavior. When you upgrade a model version, know exactly 
 - [x] Fixed advisory quality checks (failed tests, critical regressions, unknown-rate, runtime outliers)
 - [x] Model-upgrade workflow parity with always-on benchmark artifact outputs
 
+## Phase 14C: Extended Statistics V2 (Completed)
+- [x] Compare output extended with effect size (Cohen's h) + BH-FDR-adjusted significance
+- [x] Benchmark summary extended with suite-level effect size/FDR metadata and advisory signal
+- [x] Metadata/output-only contract preserved (no gate semantic override)
+
 ## Current Status
 No open committed roadmap items at this time. GA baseline is `v1.0.0`; future exploration is tracked as non-committed candidates and promoted into new phases only when prioritized.
 

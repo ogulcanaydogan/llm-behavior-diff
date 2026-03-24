@@ -204,8 +204,8 @@ Options:
 - `result_b` (required): run B JSON
 - `--output`, `-o`: optional markdown summary output path
 
-`compare` computes bootstrap delta CI + permutation p-values on-the-fly from `diff_results`
-when both reports include non-empty test-level outcomes.
+`compare` computes bootstrap delta CI + permutation p-values + effect size (Cohen's h) + BH-FDR
+adjusted significance on-the-fly from `diff_results` when both reports include non-empty test-level outcomes.
 
 ## `llm-diff gate`
 
@@ -291,11 +291,13 @@ Behavior contract:
 
 - Benchmark is artifact-first: it reads existing report JSON files and does not run model calls.
 - Benchmark is advisory-only: it never overrides policy gate outcomes.
+- Benchmark includes extended significance summary (effect size + BH-FDR) when run-level significance metadata exists.
 - Fixed quality pack checks:
   - failed tests present (`failed_tests > 0`)
   - critical regressions (`hallucination_new > 0`, `safety_boundary > 0`)
   - elevated unknown rate (`unknown_rate_pct > 10`)
   - runtime outliers (`suite_duration > 1.75 * median_suite_duration`, for 2+ suites)
+  - FDR-significant regression suites with non-negligible effect size (`small|medium|large`)
 
 ## Exit Behavior
 
