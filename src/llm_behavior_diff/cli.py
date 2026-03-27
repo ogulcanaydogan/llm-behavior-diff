@@ -234,6 +234,7 @@ def run(
             "azure_blob",
             "databricks",
             "postgres",
+            "clickhouse",
         ]
     ),
     default="none",
@@ -486,6 +487,21 @@ def run(
     show_default=True,
     help="PostgreSQL sslmode",
 )
+@click.option(
+    "--export-ch-dsn",
+    type=str,
+    help="ClickHouse DSN (optional flag; fallback: LLM_DIFF_EXPORT_CH_DSN)",
+)
+@click.option(
+    "--export-ch-database",
+    type=str,
+    help="ClickHouse database (required when --export-connector clickhouse)",
+)
+@click.option(
+    "--export-ch-table",
+    type=str,
+    help="ClickHouse table (required when --export-connector clickhouse)",
+)
 def report(
     report_file: str,
     format: str,
@@ -537,6 +553,9 @@ def report(
     export_pg_schema: Optional[str],
     export_pg_table: Optional[str],
     export_pg_sslmode: str,
+    export_ch_dsn: Optional[str],
+    export_ch_database: Optional[str],
+    export_ch_table: Optional[str],
 ) -> None:
     """
     Generate behavioral diff report from results.
@@ -630,6 +649,9 @@ def report(
                 pg_schema=export_pg_schema,
                 pg_table=export_pg_table,
                 pg_sslmode=export_pg_sslmode,
+                ch_dsn=export_ch_dsn,
+                ch_database=export_ch_database,
+                ch_table=export_ch_table,
             )
             console.print("[green]External export delivered[/green]")
         except Exception as exc:
@@ -1494,6 +1516,13 @@ def _resolve_export_postgres_password(explicit_password: Optional[str]) -> Optio
     return env_password or None
 
 
+def _resolve_export_clickhouse_dsn(explicit_dsn: Optional[str]) -> Optional[str]:
+    if explicit_dsn and explicit_dsn.strip():
+        return explicit_dsn.strip()
+    env_dsn = os.getenv("LLM_DIFF_EXPORT_CH_DSN", "").strip()
+    return env_dsn or None
+
+
 def _content_type_for_report_format(report_format: str) -> str:
     mapping = {
         "json": "application/json",
@@ -1671,6 +1700,19 @@ def _create_postgres_connection(
     )
 
 
+def _create_clickhouse_client(*, dsn: str, timeout_seconds: float) -> Any:
+    from clickhouse_driver import Client
+
+    connect_timeout = max(1, int(timeout_seconds))
+    send_receive_timeout = max(1, int(timeout_seconds))
+    return Client.from_url(
+        dsn,
+        connect_timeout=connect_timeout,
+        send_receive_timeout=send_receive_timeout,
+        sync_request_timeout=send_receive_timeout,
+    )
+
+
 def _normalize_databricks_host(host: str) -> str:
     normalized = host.strip()
     if not normalized:
@@ -1736,6 +1778,14 @@ def _quote_postgres_identifier(identifier: str) -> str:
         raise ValueError("PostgreSQL identifier must not be empty.")
     escaped = normalized.replace('"', '""')
     return f'"{escaped}"'
+
+
+def _quote_clickhouse_identifier(identifier: str) -> str:
+    normalized = identifier.strip()
+    if not normalized:
+        raise ValueError("ClickHouse identifier must not be empty.")
+    escaped = normalized.replace("`", "``")
+    return f"`{escaped}`"
 
 
 def _build_bigquery_rows_from_ndjson(content: str) -> list[dict[str, Any]]:
@@ -1909,7 +1959,7 @@ def _is_transient_export_error(connector: str, exc: Exception) -> bool:
         if class_name == "HttpResponseError" and status_code in _TRANSIENT_HTTP_STATUS_CODES:
             return True
 
-    if connector in {"snowflake", "redshift", "databricks", "postgres"}:
+    if connector in {"snowflake", "redshift", "databricks", "postgres", "clickhouse"}:
         if _is_auth_or_permission_message(message):
             return False
         if _is_likely_transient_message(message):
@@ -2005,6 +2055,9 @@ def _dispatch_report_export(
     pg_schema: Optional[str],
     pg_table: Optional[str],
     pg_sslmode: str,
+    ch_dsn: Optional[str],
+    ch_database: Optional[str],
+    ch_table: Optional[str],
 ) -> None:
     if timeout_seconds <= 0:
         raise ValueError("export_timeout must be > 0")
@@ -2449,9 +2502,59 @@ def _dispatch_report_export(
         )
         return
 
+    if normalized == "clickhouse":
+        if report_format != "ndjson":
+            raise ValueError("export_connector 'clickhouse' supports only --format ndjson.")
+        resolved_ch_dsn = _resolve_export_clickhouse_dsn(ch_dsn)
+        if not resolved_ch_dsn:
+            raise ValueError(
+                "ClickHouse DSN is required via --export-ch-dsn or LLM_DIFF_EXPORT_CH_DSN."
+            )
+        if not ch_database or not ch_database.strip():
+            raise ValueError(
+                "export_ch_database is required when export_connector is 'clickhouse'."
+            )
+        if not ch_table or not ch_table.strip():
+            raise ValueError("export_ch_table is required when export_connector is 'clickhouse'.")
+
+        rows = _build_bigquery_rows_from_ndjson(content)
+        if not rows:
+            return
+
+        columns = list(rows[0].keys())
+        quoted_table = ".".join(
+            [
+                _quote_clickhouse_identifier(ch_database),
+                _quote_clickhouse_identifier(ch_table),
+            ]
+        )
+        quoted_columns = ", ".join(_quote_clickhouse_identifier(column) for column in columns)
+        value_rows = [tuple(row[column] for column in columns) for row in rows]
+        query = f"INSERT INTO {quoted_table} ({quoted_columns}) VALUES"
+
+        def _insert_clickhouse_rows() -> None:
+            client = _create_clickhouse_client(dsn=resolved_ch_dsn, timeout_seconds=timeout_seconds)
+            try:
+                client.execute(query, value_rows)
+            finally:
+                disconnect_connection = getattr(client, "disconnect_connection", None)
+                if callable(disconnect_connection):
+                    disconnect_connection()
+                else:
+                    disconnect = getattr(client, "disconnect", None)
+                    if callable(disconnect):
+                        disconnect()
+
+        _run_export_operation_with_retry(
+            connector=normalized,
+            operation="executemany",
+            execute=_insert_clickhouse_rows,
+        )
+        return
+
     raise ValueError(
         f"Unsupported export connector '{connector}'. Supported: none, http, s3, gcs, "
-        "bigquery, snowflake, redshift, azure_blob, databricks, postgres."
+        "bigquery, snowflake, redshift, azure_blob, databricks, postgres, clickhouse."
     )
 
 

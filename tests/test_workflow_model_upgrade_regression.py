@@ -130,6 +130,7 @@ def test_model_upgrade_workflow_has_factual_connector_inputs_and_export_wiring()
     assert "azure_blob" in options
     assert "databricks" in options
     assert "postgres" in options
+    assert "clickhouse" in options
 
     job_env = workflow["jobs"]["regression-gate"]["env"]
     assert isinstance(job_env, dict)
@@ -160,7 +161,10 @@ def test_model_upgrade_workflow_has_factual_connector_inputs_and_export_wiring()
     assert job_env.get("EXPORT_PG_SCHEMA") == "${{ vars.EXPORT_PG_SCHEMA }}"
     assert job_env.get("EXPORT_PG_TABLE") == "${{ vars.EXPORT_PG_TABLE }}"
     assert job_env.get("EXPORT_PG_SSLMODE") == "${{ vars.EXPORT_PG_SSLMODE }}"
+    assert job_env.get("EXPORT_CH_DATABASE") == "${{ vars.EXPORT_CH_DATABASE }}"
+    assert job_env.get("EXPORT_CH_TABLE") == "${{ vars.EXPORT_CH_TABLE }}"
     assert job_env.get("LLM_DIFF_EXPORT_PG_PASSWORD") == "${{ secrets.POSTGRES_PASSWORD }}"
+    assert job_env.get("LLM_DIFF_EXPORT_CH_DSN") == "${{ secrets.CLICKHOUSE_DSN }}"
 
     steps = workflow["jobs"]["regression-gate"]["steps"]
     assert isinstance(steps, list)
@@ -225,6 +229,8 @@ def test_model_upgrade_workflow_has_factual_connector_inputs_and_export_wiring()
     assert '--export-pg-schema "$EXPORT_PG_SCHEMA"' in run_script
     assert '--export-pg-table "$EXPORT_PG_TABLE"' in run_script
     assert '--export-pg-sslmode "${EXPORT_PG_SSLMODE:-require}"' in run_script
+    assert '--export-ch-database "$EXPORT_CH_DATABASE"' in run_script
+    assert '--export-ch-table "$EXPORT_CH_TABLE"' in run_script
     assert "SNOWFLAKE_PASSWORD secret is required when export_connector=snowflake." in run_script
     assert "REDSHIFT_PASSWORD secret is required when export_connector=redshift." in run_script
     assert (
@@ -284,6 +290,15 @@ def test_model_upgrade_workflow_has_factual_connector_inputs_and_export_wiring()
         "EXPORT_PG_TABLE repository variable is required when export_connector=postgres."
         in run_script
     )
+    assert "CLICKHOUSE_DSN secret is required when export_connector=clickhouse." in run_script
+    assert (
+        "EXPORT_CH_DATABASE repository variable is required when export_connector=clickhouse."
+        in run_script
+    )
+    assert (
+        "EXPORT_CH_TABLE repository variable is required when export_connector=clickhouse."
+        in run_script
+    )
     assert 'elif [ "$EXPORT_CONNECTOR" = "gcs" ]; then' in run_script
     assert 'elif [ "$EXPORT_CONNECTOR" = "azure_blob" ]; then' in run_script
     assert 'elif [ "$EXPORT_CONNECTOR" = "bigquery" ]; then' in run_script
@@ -291,9 +306,11 @@ def test_model_upgrade_workflow_has_factual_connector_inputs_and_export_wiring()
     assert 'elif [ "$EXPORT_CONNECTOR" = "redshift" ]; then' in run_script
     assert 'elif [ "$EXPORT_CONNECTOR" = "databricks" ]; then' in run_script
     assert 'elif [ "$EXPORT_CONNECTOR" = "postgres" ]; then' in run_script
+    assert 'elif [ "$EXPORT_CONNECTOR" = "clickhouse" ]; then' in run_script
     assert "REDSHIFT_PASSWORD" in call_secrets
     assert "DATABRICKS_TOKEN" in call_secrets
     assert "POSTGRES_PASSWORD" in call_secrets
+    assert "CLICKHOUSE_DSN" in call_secrets
 
     export_step = next(
         step

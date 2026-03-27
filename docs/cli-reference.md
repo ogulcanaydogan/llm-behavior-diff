@@ -131,6 +131,10 @@ llm-diff report report.json --format ndjson -o report.ndjson \
   --export-pg-schema llm_diff \
   --export-pg-table diff_rows \
   --export-pg-sslmode require
+llm-diff report report.json --format ndjson -o report.ndjson \
+  --export-connector clickhouse \
+  --export-ch-database analytics \
+  --export-ch-table diff_rows
 ```
 
 Options:
@@ -138,7 +142,7 @@ Options:
 - `report_file` (required): JSON report path
 - `--format`: `table` (default), `json`, `html`, `markdown`, `csv`, `ndjson`, `junit`
 - `--output`, `-o`: output file path (stdout when omitted)
-- `--export-connector`: `none` (default), `http`, `s3`, `gcs`, `bigquery`, `snowflake`, `redshift`, `azure_blob`, `databricks`, or `postgres`
+- `--export-connector`: `none` (default), `http`, `s3`, `gcs`, `bigquery`, `snowflake`, `redshift`, `azure_blob`, `databricks`, `postgres`, or `clickhouse`
 - `--export-endpoint`: required when `--export-connector=http`
 - `--export-timeout`: connector timeout seconds (default `10.0`)
 - `--export-api-key`: optional explicit API key (fallback: `LLM_DIFF_EXPORT_API_KEY`)
@@ -185,6 +189,9 @@ Options:
 - `--export-pg-schema`: required when `--export-connector=postgres`
 - `--export-pg-table`: required when `--export-connector=postgres`
 - `--export-pg-sslmode`: optional PostgreSQL sslmode (default `require`)
+- `--export-ch-dsn`: optional explicit ClickHouse DSN (fallback: `LLM_DIFF_EXPORT_CH_DSN`)
+- `--export-ch-database`: required when `--export-connector=clickhouse`
+- `--export-ch-table`: required when `--export-connector=clickhouse`
 
 `report` table/markdown output includes run-level bootstrap + Wilson confidence intervals when
 `metadata.significance` is present.
@@ -197,7 +204,7 @@ Export format behavior:
 - `csv`: one row per `diff_result`, metric-focused columns, no raw model responses.
 - `ndjson`: one JSON object per `diff_result`, includes run context + comparator metadata + raw responses.
 - `junit`: one `<testcase>` per `diff_result`; `is_regression=true` maps to `<failure>`, others pass with status in `system-out`.
-- direct connector dispatch is opt-in and supports `http`, `s3`, `gcs`, `bigquery`, `snowflake`, `redshift`, `azure_blob`, `databricks`, and `postgres`.
+- direct connector dispatch is opt-in and supports `http`, `s3`, `gcs`, `bigquery`, `snowflake`, `redshift`, `azure_blob`, `databricks`, `postgres`, and `clickhouse`.
 - connector dispatch requires non-`table` formats.
 - `gcs` supports all non-`table` report formats and uses ADC credentials.
 - `azure_blob` supports all non-`table` report formats and uses `DefaultAzureCredential`.
@@ -206,6 +213,7 @@ Export format behavior:
 - `redshift` dispatch requires `--format ndjson` and fails fast on insert errors.
 - `databricks` dispatch requires `--format ndjson` and fails fast on insert errors.
 - `postgres` dispatch requires `--format ndjson` and fails fast on insert errors.
+- `clickhouse` dispatch requires `--format ndjson` and fails fast on insert errors.
 
 ## `llm-diff compare`
 
