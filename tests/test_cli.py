@@ -1035,6 +1035,7 @@ def test_export_retry_wrapper_non_transient_failure_is_immediate_for_all_connect
         "azure_blob",
         "databricks",
         "postgres",
+        "clickhouse",
     ]
     for connector in connectors:
         attempts = {"count": 0}
@@ -2902,6 +2903,215 @@ def test_report_postgres_export_connector_rejects_non_ndjson_format(tmp_path: Pa
             "--export-pg-schema",
             "llm_diff",
             "--export-pg-table",
+            "diff_rows",
+        ],
+    )
+
+    assert result.exit_code == 1
+    assert "supports only --format ndjson" in result.output
+
+
+def test_report_clickhouse_export_connector_success_with_env_dsn(
+    tmp_path: Path, monkeypatch
+) -> None:
+    report_path = tmp_path / "report_clickhouse_export.json"
+    ndjson_path = tmp_path / "report_clickhouse_export.ndjson"
+    captured: dict[str, object] = {}
+    attempts = {"count": 0}
+    backoffs: list[float] = []
+
+    report = BehaviorReport(
+        model_a="gpt-4o",
+        model_b="gpt-4.5",
+        suite_name="suite_clickhouse_export",
+        total_tests=1,
+        total_diffs=1,
+        regressions=1,
+        improvements=0,
+        duration_seconds=0.7,
+        diff_results=[
+            DiffResult(
+                test_id="ch_001",
+                model_a="gpt-4o",
+                model_b="gpt-4.5",
+                response_a="a",
+                response_b="b",
+                is_semantically_same=False,
+                semantic_similarity=0.15,
+                behavior_category=BehaviorCategory.KNOWLEDGE_CHANGE,
+                is_regression=True,
+                is_improvement=False,
+                confidence=0.77,
+                explanation="regression",
+                metadata={"comparator": "semantic"},
+            )
+        ],
+    )
+    report_path.write_text(json.dumps(report.model_dump(mode="json"), indent=2), encoding="utf-8")
+
+    class FakeClient:
+        def execute(self, query: str, rows: list[tuple[object, ...]]) -> None:
+            attempts["count"] += 1
+            if attempts["count"] == 1:
+                raise TimeoutError("clickhouse connection timed out")
+            captured["query"] = query
+            captured["rows"] = rows
+
+        def disconnect_connection(self) -> None:
+            captured["disconnected"] = True
+
+    def fake_create_clickhouse_client(*, dsn: str, timeout_seconds: float):
+        captured["connect_kwargs"] = {"dsn": dsn, "timeout_seconds": timeout_seconds}
+        return FakeClient()
+
+    monkeypatch.setenv("LLM_DIFF_EXPORT_CH_DSN", "clickhouse://svc:secret@clickhouse:9440/default")
+    monkeypatch.setattr("llm_behavior_diff.cli._sleep_export_retry", backoffs.append)
+    monkeypatch.setattr(
+        "llm_behavior_diff.cli._create_clickhouse_client", fake_create_clickhouse_client
+    )
+
+    result = CliRunner().invoke(
+        main,
+        [
+            "report",
+            str(report_path),
+            "--format",
+            "ndjson",
+            "--output",
+            str(ndjson_path),
+            "--export-connector",
+            "clickhouse",
+            "--export-ch-database",
+            "analytics",
+            "--export-ch-table",
+            "diff_rows",
+            "--export-timeout",
+            "6",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert "External export delivered" in result.output
+
+    connect_kwargs = captured["connect_kwargs"]
+    assert isinstance(connect_kwargs, dict)
+    assert connect_kwargs["dsn"] == "clickhouse://svc:secret@clickhouse:9440/default"
+    assert connect_kwargs["timeout_seconds"] == 6.0
+
+    query = captured["query"]
+    assert isinstance(query, str)
+    assert "INSERT INTO `analytics`.`diff_rows`" in query
+
+    rows = captured["rows"]
+    assert isinstance(rows, list)
+    assert len(rows) == 1
+    first_row = rows[0]
+    assert isinstance(first_row, tuple)
+    assert first_row[4] == "ch_001"
+    assert first_row[-1] == '{"comparator": "semantic"}'
+    assert captured["disconnected"] is True
+    assert attempts["count"] == 2
+    assert backoffs == [0.55]
+
+
+def test_report_clickhouse_export_connector_requires_fields(tmp_path: Path, monkeypatch) -> None:
+    report_path = tmp_path / "report_clickhouse_export_missing_fields.json"
+    ndjson_path = tmp_path / "report_clickhouse_export_missing_fields.ndjson"
+    report = BehaviorReport(
+        model_a="gpt-4o",
+        model_b="gpt-4.5",
+        suite_name="suite_clickhouse_export",
+        total_tests=0,
+        total_diffs=0,
+        regressions=0,
+        improvements=0,
+        duration_seconds=0.0,
+    )
+    report_path.write_text(json.dumps(report.model_dump(mode="json"), indent=2), encoding="utf-8")
+    monkeypatch.delenv("LLM_DIFF_EXPORT_CH_DSN", raising=False)
+
+    base_args = [
+        "report",
+        str(report_path),
+        "--format",
+        "ndjson",
+        "--output",
+        str(ndjson_path),
+        "--export-connector",
+        "clickhouse",
+    ]
+
+    missing_dsn = CliRunner().invoke(
+        main,
+        [
+            *base_args,
+            "--export-ch-database",
+            "analytics",
+            "--export-ch-table",
+            "diff_rows",
+        ],
+    )
+    assert missing_dsn.exit_code == 1
+    assert "ClickHouse DSN is required" in missing_dsn.output
+
+    missing_database = CliRunner().invoke(
+        main,
+        [
+            *base_args,
+            "--export-ch-dsn",
+            "clickhouse://svc:secret@clickhouse:9440/default",
+            "--export-ch-table",
+            "diff_rows",
+        ],
+    )
+    assert missing_database.exit_code == 1
+    assert "export_ch_database is required" in missing_database.output
+
+    missing_table = CliRunner().invoke(
+        main,
+        [
+            *base_args,
+            "--export-ch-dsn",
+            "clickhouse://svc:secret@clickhouse:9440/default",
+            "--export-ch-database",
+            "analytics",
+        ],
+    )
+    assert missing_table.exit_code == 1
+    assert "export_ch_table is required" in missing_table.output
+
+
+def test_report_clickhouse_export_connector_rejects_non_ndjson_format(tmp_path: Path) -> None:
+    report_path = tmp_path / "report_clickhouse_export_non_ndjson.json"
+    csv_path = tmp_path / "report_clickhouse_export_non_ndjson.csv"
+    report = BehaviorReport(
+        model_a="gpt-4o",
+        model_b="gpt-4.5",
+        suite_name="suite_clickhouse_export",
+        total_tests=0,
+        total_diffs=0,
+        regressions=0,
+        improvements=0,
+        duration_seconds=0.0,
+    )
+    report_path.write_text(json.dumps(report.model_dump(mode="json"), indent=2), encoding="utf-8")
+
+    result = CliRunner().invoke(
+        main,
+        [
+            "report",
+            str(report_path),
+            "--format",
+            "csv",
+            "--output",
+            str(csv_path),
+            "--export-connector",
+            "clickhouse",
+            "--export-ch-dsn",
+            "clickhouse://svc:secret@clickhouse:9440/default",
+            "--export-ch-database",
+            "analytics",
+            "--export-ch-table",
             "diff_rows",
         ],
     )
