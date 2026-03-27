@@ -21,7 +21,7 @@ This runbook covers manual distribution and model-upgrade gating workflows.
 | --- | --- | --- |
 | `publish-pypi.yml` | OIDC trusted publishing OR `TEST_PYPI_API_TOKEN` / `PYPI_API_TOKEN` fallback | `id-token: write`, `contents: read` |
 | `docker-image.yml` | `GITHUB_TOKEN` (provided by Actions) | `packages: write`, `contents: read` |
-| `model-upgrade-regression.yml` | `OPENAI_API_KEY` and/or `ANTHROPIC_API_KEY` based on model ids; optional `EXPORT_CONNECTOR_API_KEY` for HTTP export dispatch; optional `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` / `AWS_SESSION_TOKEN` for S3 export dispatch; optional Google ADC credential setup for GCS/BigQuery export dispatch; optional Azure identity credential setup for Azure Blob export dispatch; optional `SNOWFLAKE_PASSWORD` for Snowflake export dispatch; optional `REDSHIFT_PASSWORD` for Redshift export dispatch; optional `DATABRICKS_TOKEN` for Databricks export dispatch; optional `POSTGRES_PASSWORD` for PostgreSQL export dispatch (no extra secret needed for `factual_connector=wikipedia`) | `contents: read` |
+| `model-upgrade-regression.yml` | `OPENAI_API_KEY` and/or `ANTHROPIC_API_KEY` based on model ids; optional `EXPORT_CONNECTOR_API_KEY` for HTTP export dispatch; optional `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` / `AWS_SESSION_TOKEN` for S3 export dispatch; optional Google ADC credential setup for GCS/BigQuery export dispatch; optional Azure identity credential setup for Azure Blob export dispatch; optional `SNOWFLAKE_PASSWORD` for Snowflake export dispatch; optional `REDSHIFT_PASSWORD` for Redshift export dispatch; optional `DATABRICKS_TOKEN` for Databricks export dispatch; optional `POSTGRES_PASSWORD` for PostgreSQL export dispatch; optional `CLICKHOUSE_DSN` for ClickHouse export dispatch (no extra secret needed for `factual_connector=wikipedia`) | `contents: read` |
 
 ## 1) Package Publish (Manual)
 
@@ -85,7 +85,7 @@ Inputs:
 - `factual_connector` (optional, default `none`): `none|wikipedia`
 - `factual_connector_timeout` (optional, default `8`)
 - `factual_connector_max_results` (optional, default `3`)
-- `export_connector` (optional, default `none`): `none|http|s3|gcs|bigquery|snowflake|redshift|azure_blob|databricks|postgres`
+- `export_connector` (optional, default `none`): `none|http|s3|gcs|bigquery|snowflake|redshift|azure_blob|databricks|postgres|clickhouse`
 - `export_connector_endpoint` (optional): required when `export_connector=http`
 - `export_connector_timeout` (optional, default `10`)
 - `export_s3_bucket` (optional): required when `export_connector=s3`
@@ -144,6 +144,12 @@ PostgreSQL workflow wiring (env-based, no new workflow input):
 - `EXPORT_PG_TABLE` repository variable is required when `export_connector=postgres`
 - `EXPORT_PG_SSLMODE` repository variable is optional (default `require`)
 - `POSTGRES_PASSWORD` secret is required when `export_connector=postgres`
+
+ClickHouse workflow wiring (env-based, no new workflow input):
+
+- `EXPORT_CH_DATABASE` repository variable is required when `export_connector=clickhouse`
+- `EXPORT_CH_TABLE` repository variable is required when `export_connector=clickhouse`
+- `CLICKHOUSE_DSN` secret is required when `export_connector=clickhouse` (mapped to `LLM_DIFF_EXPORT_CH_DSN`)
 
 Default suite set when `suite_list` is empty:
 
@@ -230,6 +236,11 @@ Artifacts:
   and password from `--export-pg-password` or `LLM_DIFF_EXPORT_PG_PASSWORD`
   (workflow: `POSTGRES_PASSWORD` secret).
 - PostgreSQL export follows fail-fast semantics: missing config, authentication errors,
+  or row insert errors fail the command/workflow step.
+- When `export_connector=clickhouse` is enabled, only NDJSON exports are uploaded to
+  ClickHouse (`export_ch_database.export_ch_table`) using DSN from `--export-ch-dsn` or
+  `LLM_DIFF_EXPORT_CH_DSN` (workflow: `CLICKHOUSE_DSN` secret).
+- ClickHouse export follows fail-fast semantics: missing config, authentication errors,
   or row insert errors fail the command/workflow step.
 - When external factual connector is enabled, reports include metadata-only
   `factual_external` comparator payloads and run-level `factual_external_summary`.
