@@ -10,10 +10,11 @@ import csv
 import io
 import json
 import os
+import time
 import xml.etree.ElementTree as ET
 from html import escape as html_escape
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 from urllib.parse import urlparse
 
 import click
@@ -1678,6 +1679,181 @@ def _build_bigquery_rows_from_ndjson(content: str) -> list[dict[str, Any]]:
     return rows
 
 
+_EXPORT_RETRY_MAX_ATTEMPTS: int = 3
+_EXPORT_RETRY_BASE_BACKOFF_SECONDS: float = 0.5
+_EXPORT_RETRY_MAX_JITTER_SECONDS: float = 0.15
+_TRANSIENT_HTTP_STATUS_CODES = {408, 429, 500, 502, 503, 504}
+_TRANSIENT_AWS_ERROR_CODES = {
+    "RequestTimeout",
+    "RequestTimeoutException",
+    "Throttling",
+    "ThrottlingException",
+    "TooManyRequestsException",
+    "InternalError",
+    "InternalFailure",
+    "ServiceUnavailable",
+    "SlowDown",
+}
+_AUTH_PERMISSION_KEYWORDS = (
+    "auth",
+    "credential",
+    "token",
+    "password",
+    "forbidden",
+    "permission",
+    "access denied",
+    "unauthorized",
+)
+_TRANSIENT_MESSAGE_KEYWORDS = (
+    "timed out",
+    "timeout",
+    "temporary",
+    "temporarily unavailable",
+    "connection reset",
+    "connection aborted",
+    "connection refused",
+    "connection closed",
+    "broken pipe",
+    "eof",
+    "network",
+    "service unavailable",
+    "too many requests",
+    "throttl",
+    "rate limit",
+    "bad gateway",
+    "gateway timeout",
+)
+
+
+def _extract_http_status_code(exc: Exception) -> Optional[int]:
+    if isinstance(exc, httpx.HTTPStatusError):
+        return exc.response.status_code
+    status_code = getattr(exc, "status_code", None)
+    if isinstance(status_code, int):
+        return status_code
+    response = getattr(exc, "response", None)
+    if isinstance(response, dict):
+        metadata = response.get("ResponseMetadata")
+        if isinstance(metadata, dict):
+            response_status = metadata.get("HTTPStatusCode")
+            if isinstance(response_status, int):
+                return response_status
+    return None
+
+
+def _extract_aws_error_code(exc: Exception) -> Optional[str]:
+    response = getattr(exc, "response", None)
+    if not isinstance(response, dict):
+        return None
+    error = response.get("Error")
+    if not isinstance(error, dict):
+        return None
+    code = error.get("Code")
+    if isinstance(code, str):
+        return code
+    return None
+
+
+def _is_auth_or_permission_message(message: str) -> bool:
+    return any(keyword in message for keyword in _AUTH_PERMISSION_KEYWORDS)
+
+
+def _is_likely_transient_message(message: str) -> bool:
+    return any(keyword in message for keyword in _TRANSIENT_MESSAGE_KEYWORDS)
+
+
+def _is_transient_export_error(connector: str, exc: Exception) -> bool:
+    if isinstance(exc, (httpx.TimeoutException, TimeoutError)):
+        return True
+    if isinstance(exc, httpx.TransportError):
+        return True
+
+    status_code = _extract_http_status_code(exc)
+    if status_code in _TRANSIENT_HTTP_STATUS_CODES:
+        return True
+
+    class_name = exc.__class__.__name__
+    module_name = exc.__class__.__module__.lower()
+    message = str(exc).lower()
+    lowered_name = class_name.lower()
+
+    if connector == "s3" and "botocore" in module_name:
+        if class_name in {
+            "EndpointConnectionError",
+            "ConnectTimeoutError",
+            "ReadTimeoutError",
+            "ConnectionClosedError",
+        }:
+            return True
+        if class_name == "ClientError":
+            error_code = _extract_aws_error_code(exc)
+            if error_code in _TRANSIENT_AWS_ERROR_CODES:
+                return True
+            if status_code in _TRANSIENT_HTTP_STATUS_CODES:
+                return True
+
+    if connector in {"bigquery", "gcs"} and module_name.startswith("google.api_core"):
+        if class_name in {
+            "DeadlineExceeded",
+            "ServiceUnavailable",
+            "TooManyRequests",
+            "InternalServerError",
+            "BadGateway",
+            "GatewayTimeout",
+        }:
+            return True
+
+    if connector == "azure_blob" and module_name.startswith("azure.core"):
+        if class_name in {"ServiceRequestError", "ServiceResponseError"}:
+            return True
+        if class_name == "HttpResponseError" and status_code in _TRANSIENT_HTTP_STATUS_CODES:
+            return True
+
+    if connector in {"snowflake", "redshift", "databricks"}:
+        if _is_auth_or_permission_message(message):
+            return False
+        if _is_likely_transient_message(message):
+            return True
+        if any(keyword in lowered_name for keyword in ("timeout", "connection", "network")):
+            return True
+        if class_name in {"OperationalError", "InterfaceError"}:
+            return True
+
+    return False
+
+
+def _compute_export_retry_backoff_seconds(retry_attempt: int) -> float:
+    base_delay = float(_EXPORT_RETRY_BASE_BACKOFF_SECONDS * (2 ** (retry_attempt - 1)))
+    jitter = float(min(_EXPORT_RETRY_MAX_JITTER_SECONDS, 0.05 * retry_attempt))
+    return float(base_delay + jitter)
+
+
+def _sleep_export_retry(seconds: float) -> None:
+    time.sleep(seconds)
+
+
+def _run_export_operation_with_retry(
+    *,
+    connector: str,
+    operation: str,
+    execute: Callable[[], None],
+) -> None:
+    for attempt in range(1, _EXPORT_RETRY_MAX_ATTEMPTS + 1):
+        try:
+            execute()
+            return
+        except Exception as exc:
+            reason = str(exc).strip() or exc.__class__.__name__
+            transient = _is_transient_export_error(connector, exc)
+            if attempt >= _EXPORT_RETRY_MAX_ATTEMPTS or not transient:
+                raise RuntimeError(
+                    f"connector={connector} operation={operation} "
+                    f"attempt {attempt}/{_EXPORT_RETRY_MAX_ATTEMPTS} failed: {reason}"
+                ) from exc
+            backoff_seconds = _compute_export_retry_backoff_seconds(attempt)
+            _sleep_export_retry(backoff_seconds)
+
+
 def _dispatch_report_export(
     report: BehaviorReport,
     report_format: str,
@@ -1759,13 +1935,20 @@ def _dispatch_report_export(
             },
         }
 
-        response = httpx.post(
-            endpoint.strip(),
-            json=payload,
-            headers=headers,
-            timeout=timeout_seconds,
+        def _send_http_request() -> None:
+            response = httpx.post(
+                endpoint.strip(),
+                json=payload,
+                headers=headers,
+                timeout=timeout_seconds,
+            )
+            response.raise_for_status()
+
+        _run_export_operation_with_retry(
+            connector=normalized,
+            operation="post",
+            execute=_send_http_request,
         )
-        response.raise_for_status()
         return
 
     if normalized == "s3":
@@ -1777,12 +1960,20 @@ def _dispatch_report_export(
             report_id=str(report.id),
             report_format=report_format,
         )
-        client = _create_s3_client(region=s3_region, timeout_seconds=timeout_seconds)
-        client.put_object(
-            Bucket=s3_bucket.strip(),
-            Key=object_key,
-            Body=content.encode("utf-8"),
-            ContentType=_content_type_for_report_format(report_format),
+
+        def _put_s3_object() -> None:
+            client = _create_s3_client(region=s3_region, timeout_seconds=timeout_seconds)
+            client.put_object(
+                Bucket=s3_bucket.strip(),
+                Key=object_key,
+                Body=content.encode("utf-8"),
+                ContentType=_content_type_for_report_format(report_format),
+            )
+
+        _run_export_operation_with_retry(
+            connector=normalized,
+            operation="put_object",
+            execute=_put_s3_object,
         )
         return
 
@@ -1795,13 +1986,21 @@ def _dispatch_report_export(
             report_id=str(report.id),
             report_format=report_format,
         )
-        client = _create_gcs_client(project=gcs_project, timeout_seconds=timeout_seconds)
-        bucket = client.bucket(gcs_bucket.strip())
-        blob = bucket.blob(object_key)
-        blob.upload_from_string(
-            content,
-            content_type=_content_type_for_report_format(report_format),
-            timeout=timeout_seconds,
+
+        def _upload_gcs_blob() -> None:
+            client = _create_gcs_client(project=gcs_project, timeout_seconds=timeout_seconds)
+            bucket = client.bucket(gcs_bucket.strip())
+            blob = bucket.blob(object_key)
+            blob.upload_from_string(
+                content,
+                content_type=_content_type_for_report_format(report_format),
+                timeout=timeout_seconds,
+            )
+
+        _run_export_operation_with_retry(
+            connector=normalized,
+            operation="upload_from_string",
+            execute=_upload_gcs_blob,
         )
         return
 
@@ -1820,19 +2019,27 @@ def _dispatch_report_export(
             report_id=str(report.id),
             report_format=report_format,
         )
-        service_client = _create_azure_blob_service_client(
-            account_url=az_account_url.strip(),
-            timeout_seconds=timeout_seconds,
-        )
-        blob_client = service_client.get_blob_client(
-            container=az_container.strip(),
-            blob=object_key,
-        )
-        blob_client.upload_blob(
-            content.encode("utf-8"),
-            overwrite=True,
-            content_type=_content_type_for_report_format(report_format),
-            timeout=timeout_seconds,
+
+        def _upload_azure_blob() -> None:
+            service_client = _create_azure_blob_service_client(
+                account_url=az_account_url.strip(),
+                timeout_seconds=timeout_seconds,
+            )
+            blob_client = service_client.get_blob_client(
+                container=az_container.strip(),
+                blob=object_key,
+            )
+            blob_client.upload_blob(
+                content.encode("utf-8"),
+                overwrite=True,
+                content_type=_content_type_for_report_format(report_format),
+                timeout=timeout_seconds,
+            )
+
+        _run_export_operation_with_retry(
+            connector=normalized,
+            operation="upload_blob",
+            execute=_upload_azure_blob,
         )
         return
 
@@ -1854,10 +2061,18 @@ def _dispatch_report_export(
         dataset = bq_dataset.strip()
         table = bq_table.strip()
         table_id = f"{project}.{dataset}.{table}"
-        client = _create_bigquery_client(project=project, location=bq_location)
-        errors = client.insert_rows_json(table_id, rows, timeout=timeout_seconds)
-        if errors:
-            raise RuntimeError(f"BigQuery insert failed for table '{table_id}': {errors}")
+
+        def _insert_bigquery_rows() -> None:
+            client = _create_bigquery_client(project=project, location=bq_location)
+            errors = client.insert_rows_json(table_id, rows, timeout=timeout_seconds)
+            if errors:
+                raise RuntimeError(f"BigQuery insert failed for table '{table_id}': {errors}")
+
+        _run_export_operation_with_retry(
+            connector=normalized,
+            operation="insert_rows_json",
+            execute=_insert_bigquery_rows,
+        )
         return
 
     if normalized == "snowflake":
@@ -1905,23 +2120,31 @@ def _dispatch_report_export(
         quoted_columns = ", ".join(_quote_snowflake_identifier(column) for column in columns)
         placeholders = ", ".join(f"%({column})s" for column in columns)
         query = f"INSERT INTO {quoted_table} ({quoted_columns}) VALUES ({placeholders})"
-        connection = _create_snowflake_connection(
-            account=account,
-            user=user,
-            password=resolved_password,
-            warehouse=warehouse,
-            database=database,
-            schema=schema,
-            role=sf_role,
-            timeout_seconds=timeout_seconds,
+
+        def _insert_snowflake_rows() -> None:
+            connection = _create_snowflake_connection(
+                account=account,
+                user=user,
+                password=resolved_password,
+                warehouse=warehouse,
+                database=database,
+                schema=schema,
+                role=sf_role,
+                timeout_seconds=timeout_seconds,
+            )
+            cursor = connection.cursor()
+            try:
+                cursor.executemany(query, rows)
+                connection.commit()
+            finally:
+                cursor.close()
+                connection.close()
+
+        _run_export_operation_with_retry(
+            connector=normalized,
+            operation="executemany",
+            execute=_insert_snowflake_rows,
         )
-        cursor = connection.cursor()
-        try:
-            cursor.executemany(query, rows)
-            connection.commit()
-        finally:
-            cursor.close()
-            connection.close()
         return
 
     if normalized == "redshift":
@@ -1964,22 +2187,30 @@ def _dispatch_report_export(
         quoted_columns = ", ".join(_quote_redshift_identifier(column) for column in columns)
         placeholders = ", ".join(f"%({column})s" for column in columns)
         query = f"INSERT INTO {quoted_table} ({quoted_columns}) VALUES ({placeholders})"
-        connection = _create_redshift_connection(
-            host=rs_host.strip(),
-            port=rs_port,
-            database=rs_database.strip(),
-            user=rs_user.strip(),
-            password=resolved_rs_password,
-            sslmode=rs_sslmode.strip(),
-            timeout_seconds=timeout_seconds,
+
+        def _insert_redshift_rows() -> None:
+            connection = _create_redshift_connection(
+                host=rs_host.strip(),
+                port=rs_port,
+                database=rs_database.strip(),
+                user=rs_user.strip(),
+                password=resolved_rs_password,
+                sslmode=rs_sslmode.strip(),
+                timeout_seconds=timeout_seconds,
+            )
+            cursor = connection.cursor()
+            try:
+                cursor.executemany(query, rows)
+                connection.commit()
+            finally:
+                cursor.close()
+                connection.close()
+
+        _run_export_operation_with_retry(
+            connector=normalized,
+            operation="executemany",
+            execute=_insert_redshift_rows,
         )
-        cursor = connection.cursor()
-        try:
-            cursor.executemany(query, rows)
-            connection.commit()
-        finally:
-            cursor.close()
-            connection.close()
         return
 
     if normalized == "databricks":
@@ -2021,19 +2252,27 @@ def _dispatch_report_export(
         quoted_columns = ", ".join(_quote_databricks_identifier(column) for column in columns)
         placeholders = ", ".join(f"%({column})s" for column in columns)
         query = f"INSERT INTO {quoted_table} ({quoted_columns}) VALUES ({placeholders})"
-        connection = _create_databricks_connection(
-            host=dbx_host,
-            http_path=dbx_http_path,
-            token=resolved_dbx_token,
-            timeout_seconds=timeout_seconds,
+
+        def _insert_databricks_rows() -> None:
+            connection = _create_databricks_connection(
+                host=dbx_host,
+                http_path=dbx_http_path,
+                token=resolved_dbx_token,
+                timeout_seconds=timeout_seconds,
+            )
+            cursor = connection.cursor()
+            try:
+                cursor.executemany(query, rows)
+                connection.commit()
+            finally:
+                cursor.close()
+                connection.close()
+
+        _run_export_operation_with_retry(
+            connector=normalized,
+            operation="executemany",
+            execute=_insert_databricks_rows,
         )
-        cursor = connection.cursor()
-        try:
-            cursor.executemany(query, rows)
-            connection.commit()
-        finally:
-            cursor.close()
-            connection.close()
         return
 
     raise ValueError(
