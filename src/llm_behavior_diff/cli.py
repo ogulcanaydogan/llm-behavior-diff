@@ -234,6 +234,7 @@ def run(
             "azure_blob",
             "databricks",
             "postgres",
+            "mssql",
             "clickhouse",
         ]
     ),
@@ -488,6 +489,43 @@ def run(
     help="PostgreSQL sslmode",
 )
 @click.option(
+    "--export-ms-host",
+    type=str,
+    help="MSSQL host (required when --export-connector mssql)",
+)
+@click.option(
+    "--export-ms-port",
+    type=int,
+    default=1433,
+    show_default=True,
+    help="MSSQL port",
+)
+@click.option(
+    "--export-ms-database",
+    type=str,
+    help="MSSQL database (required when --export-connector mssql)",
+)
+@click.option(
+    "--export-ms-user",
+    type=str,
+    help="MSSQL user (required when --export-connector mssql)",
+)
+@click.option(
+    "--export-ms-password",
+    type=str,
+    help="MSSQL password (optional flag; fallback: LLM_DIFF_EXPORT_MS_PASSWORD)",
+)
+@click.option(
+    "--export-ms-schema",
+    type=str,
+    help="MSSQL schema (required when --export-connector mssql)",
+)
+@click.option(
+    "--export-ms-table",
+    type=str,
+    help="MSSQL table (required when --export-connector mssql)",
+)
+@click.option(
     "--export-ch-dsn",
     type=str,
     help="ClickHouse DSN (optional flag; fallback: LLM_DIFF_EXPORT_CH_DSN)",
@@ -553,6 +591,13 @@ def report(
     export_pg_schema: Optional[str],
     export_pg_table: Optional[str],
     export_pg_sslmode: str,
+    export_ms_host: Optional[str],
+    export_ms_port: int,
+    export_ms_database: Optional[str],
+    export_ms_user: Optional[str],
+    export_ms_password: Optional[str],
+    export_ms_schema: Optional[str],
+    export_ms_table: Optional[str],
     export_ch_dsn: Optional[str],
     export_ch_database: Optional[str],
     export_ch_table: Optional[str],
@@ -649,6 +694,13 @@ def report(
                 pg_schema=export_pg_schema,
                 pg_table=export_pg_table,
                 pg_sslmode=export_pg_sslmode,
+                ms_host=export_ms_host,
+                ms_port=export_ms_port,
+                ms_database=export_ms_database,
+                ms_user=export_ms_user,
+                ms_password=export_ms_password,
+                ms_schema=export_ms_schema,
+                ms_table=export_ms_table,
                 ch_dsn=export_ch_dsn,
                 ch_database=export_ch_database,
                 ch_table=export_ch_table,
@@ -1523,6 +1575,13 @@ def _resolve_export_clickhouse_dsn(explicit_dsn: Optional[str]) -> Optional[str]
     return env_dsn or None
 
 
+def _resolve_export_mssql_password(explicit_password: Optional[str]) -> Optional[str]:
+    if explicit_password and explicit_password.strip():
+        return explicit_password.strip()
+    env_password = os.getenv("LLM_DIFF_EXPORT_MS_PASSWORD", "").strip()
+    return env_password or None
+
+
 def _content_type_for_report_format(report_format: str) -> str:
     mapping = {
         "json": "application/json",
@@ -1713,6 +1772,30 @@ def _create_clickhouse_client(*, dsn: str, timeout_seconds: float) -> Any:
     )
 
 
+def _create_mssql_connection(
+    *,
+    host: str,
+    port: int,
+    database: str,
+    user: str,
+    password: str,
+    timeout_seconds: float,
+) -> Any:
+    import pymssql
+
+    login_timeout = max(1, int(timeout_seconds))
+    timeout = max(1, int(timeout_seconds))
+    return pymssql.connect(
+        server=host,
+        port=str(port),
+        user=user,
+        password=password,
+        database=database,
+        login_timeout=login_timeout,
+        timeout=timeout,
+    )
+
+
 def _normalize_databricks_host(host: str) -> str:
     normalized = host.strip()
     if not normalized:
@@ -1786,6 +1869,14 @@ def _quote_clickhouse_identifier(identifier: str) -> str:
         raise ValueError("ClickHouse identifier must not be empty.")
     escaped = normalized.replace("`", "``")
     return f"`{escaped}`"
+
+
+def _quote_mssql_identifier(identifier: str) -> str:
+    normalized = identifier.strip()
+    if not normalized:
+        raise ValueError("MSSQL identifier must not be empty.")
+    escaped = normalized.replace("]", "]]")
+    return f"[{escaped}]"
 
 
 def _build_bigquery_rows_from_ndjson(content: str) -> list[dict[str, Any]]:
@@ -1959,7 +2050,7 @@ def _is_transient_export_error(connector: str, exc: Exception) -> bool:
         if class_name == "HttpResponseError" and status_code in _TRANSIENT_HTTP_STATUS_CODES:
             return True
 
-    if connector in {"snowflake", "redshift", "databricks", "postgres", "clickhouse"}:
+    if connector in {"snowflake", "redshift", "databricks", "postgres", "clickhouse", "mssql"}:
         if _is_auth_or_permission_message(message):
             return False
         if _is_likely_transient_message(message):
@@ -2055,6 +2146,13 @@ def _dispatch_report_export(
     pg_schema: Optional[str],
     pg_table: Optional[str],
     pg_sslmode: str,
+    ms_host: Optional[str],
+    ms_port: int,
+    ms_database: Optional[str],
+    ms_user: Optional[str],
+    ms_password: Optional[str],
+    ms_schema: Optional[str],
+    ms_table: Optional[str],
     ch_dsn: Optional[str],
     ch_database: Optional[str],
     ch_table: Optional[str],
@@ -2552,9 +2650,71 @@ def _dispatch_report_export(
         )
         return
 
+    if normalized == "mssql":
+        if report_format != "ndjson":
+            raise ValueError("export_connector 'mssql' supports only --format ndjson.")
+        if not ms_host or not ms_host.strip():
+            raise ValueError("export_ms_host is required when export_connector is 'mssql'.")
+        if ms_port <= 0:
+            raise ValueError("export_ms_port must be > 0 when export_connector is 'mssql'.")
+        if not ms_database or not ms_database.strip():
+            raise ValueError("export_ms_database is required when export_connector is 'mssql'.")
+        if not ms_user or not ms_user.strip():
+            raise ValueError("export_ms_user is required when export_connector is 'mssql'.")
+        resolved_ms_password = _resolve_export_mssql_password(ms_password)
+        if not resolved_ms_password:
+            raise ValueError(
+                "MSSQL password is required via --export-ms-password or "
+                "LLM_DIFF_EXPORT_MS_PASSWORD."
+            )
+        if not ms_schema or not ms_schema.strip():
+            raise ValueError("export_ms_schema is required when export_connector is 'mssql'.")
+        if not ms_table or not ms_table.strip():
+            raise ValueError("export_ms_table is required when export_connector is 'mssql'.")
+
+        rows = _build_bigquery_rows_from_ndjson(content)
+        if not rows:
+            return
+
+        columns = list(rows[0].keys())
+        quoted_table = ".".join(
+            [
+                _quote_mssql_identifier(ms_schema),
+                _quote_mssql_identifier(ms_table),
+            ]
+        )
+        quoted_columns = ", ".join(_quote_mssql_identifier(column) for column in columns)
+        placeholders = ", ".join(["%s"] * len(columns))
+        query = f"INSERT INTO {quoted_table} ({quoted_columns}) VALUES ({placeholders})"
+        values_rows = [tuple(row[column] for column in columns) for row in rows]
+
+        def _insert_mssql_rows() -> None:
+            connection = _create_mssql_connection(
+                host=ms_host.strip(),
+                port=ms_port,
+                database=ms_database.strip(),
+                user=ms_user.strip(),
+                password=resolved_ms_password,
+                timeout_seconds=timeout_seconds,
+            )
+            cursor = connection.cursor()
+            try:
+                cursor.executemany(query, values_rows)
+                connection.commit()
+            finally:
+                cursor.close()
+                connection.close()
+
+        _run_export_operation_with_retry(
+            connector=normalized,
+            operation="executemany",
+            execute=_insert_mssql_rows,
+        )
+        return
+
     raise ValueError(
         f"Unsupported export connector '{connector}'. Supported: none, http, s3, gcs, "
-        "bigquery, snowflake, redshift, azure_blob, databricks, postgres, clickhouse."
+        "bigquery, snowflake, redshift, azure_blob, databricks, postgres, clickhouse, mssql."
     )
 
 
