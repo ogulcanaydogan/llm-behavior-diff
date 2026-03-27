@@ -1787,7 +1787,7 @@ def _create_mssql_connection(
     timeout = max(1, int(timeout_seconds))
     return pymssql.connect(
         server=host,
-        port=port,
+        port=str(port),
         user=user,
         password=password,
         database=database,
