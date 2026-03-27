@@ -80,6 +80,7 @@ on:
           - databricks
           - postgres
           - clickhouse
+          - mssql
       export_connector_endpoint:
         description: "Optional export connector endpoint URL (required for export_connector=http)"
         required: false
@@ -248,6 +249,8 @@ on:
         required: false
       CLICKHOUSE_DSN:
         required: false
+      MSSQL_PASSWORD:
+        required: false
 
 permissions:
   contents: read
@@ -320,6 +323,12 @@ jobs:
       EXPORT_PG_SSLMODE: ${{ vars.EXPORT_PG_SSLMODE }}
       EXPORT_CH_DATABASE: ${{ vars.EXPORT_CH_DATABASE }}
       EXPORT_CH_TABLE: ${{ vars.EXPORT_CH_TABLE }}
+      EXPORT_MS_HOST: ${{ vars.EXPORT_MS_HOST }}
+      EXPORT_MS_PORT: ${{ vars.EXPORT_MS_PORT }}
+      EXPORT_MS_DATABASE: ${{ vars.EXPORT_MS_DATABASE }}
+      EXPORT_MS_USER: ${{ vars.EXPORT_MS_USER }}
+      EXPORT_MS_SCHEMA: ${{ vars.EXPORT_MS_SCHEMA }}
+      EXPORT_MS_TABLE: ${{ vars.EXPORT_MS_TABLE }}
       AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
       AWS_SESSION_TOKEN: ${{ secrets.AWS_SESSION_TOKEN }}
@@ -328,6 +337,7 @@ jobs:
       LLM_DIFF_EXPORT_DBX_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
       LLM_DIFF_EXPORT_PG_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
       LLM_DIFF_EXPORT_CH_DSN: ${{ secrets.CLICKHOUSE_DSN }}
+      LLM_DIFF_EXPORT_MS_PASSWORD: ${{ secrets.MSSQL_PASSWORD }}
 
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
@@ -620,6 +630,38 @@ jobs:
               fi
               connector_args+=(--export-ch-database "$EXPORT_CH_DATABASE")
               connector_args+=(--export-ch-table "$EXPORT_CH_TABLE")
+              export_args_ndjson=("${connector_args[@]}")
+            elif [ "$EXPORT_CONNECTOR" = "mssql" ]; then
+              if [ -z "$EXPORT_MS_HOST" ]; then
+                echo "EXPORT_MS_HOST repository variable is required when export_connector=mssql."
+                exit 1
+              fi
+              if [ -z "$EXPORT_MS_DATABASE" ]; then
+                echo "EXPORT_MS_DATABASE repository variable is required when export_connector=mssql."
+                exit 1
+              fi
+              if [ -z "$EXPORT_MS_USER" ]; then
+                echo "EXPORT_MS_USER repository variable is required when export_connector=mssql."
+                exit 1
+              fi
+              if [ -z "$LLM_DIFF_EXPORT_MS_PASSWORD" ]; then
+                echo "MSSQL_PASSWORD secret is required when export_connector=mssql."
+                exit 1
+              fi
+              if [ -z "$EXPORT_MS_SCHEMA" ]; then
+                echo "EXPORT_MS_SCHEMA repository variable is required when export_connector=mssql."
+                exit 1
+              fi
+              if [ -z "$EXPORT_MS_TABLE" ]; then
+                echo "EXPORT_MS_TABLE repository variable is required when export_connector=mssql."
+                exit 1
+              fi
+              connector_args+=(--export-ms-host "$EXPORT_MS_HOST")
+              connector_args+=(--export-ms-port "${EXPORT_MS_PORT:-1433}")
+              connector_args+=(--export-ms-database "$EXPORT_MS_DATABASE")
+              connector_args+=(--export-ms-user "$EXPORT_MS_USER")
+              connector_args+=(--export-ms-schema "$EXPORT_MS_SCHEMA")
+              connector_args+=(--export-ms-table "$EXPORT_MS_TABLE")
               export_args_ndjson=("${connector_args[@]}")
             else
               echo "Unsupported export_connector: $EXPORT_CONNECTOR"
