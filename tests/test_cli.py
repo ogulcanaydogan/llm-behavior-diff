@@ -8,8 +8,10 @@ import json
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
+import httpx
 from click.testing import CliRunner
 
+import llm_behavior_diff.cli as cli_module
 from llm_behavior_diff.cli import main
 from llm_behavior_diff.schema import BehaviorCategory, BehaviorReport, DiffResult
 
@@ -941,10 +943,131 @@ def test_report_csv_ndjson_and_junit_empty_diff_results(tmp_path: Path) -> None:
     assert junit_root.find("testcase") is None
 
 
+def test_export_retry_wrapper_retries_transient_error(monkeypatch) -> None:
+    attempts = {"count": 0}
+    backoffs: list[float] = []
+
+    def flaky_operation() -> None:
+        attempts["count"] += 1
+        if attempts["count"] == 1:
+            request = httpx.Request("POST", "https://example.com/hook")
+            raise httpx.ConnectError("temporary network issue", request=request)
+
+    monkeypatch.setattr("llm_behavior_diff.cli._sleep_export_retry", backoffs.append)
+
+    cli_module._run_export_operation_with_retry(
+        connector="http",
+        operation="post",
+        execute=flaky_operation,
+    )
+
+    assert attempts["count"] == 2
+    assert backoffs == [0.55]
+
+
+def test_export_retry_wrapper_does_not_retry_non_transient_error(monkeypatch) -> None:
+    attempts = {"count": 0}
+    backoffs: list[float] = []
+
+    def non_transient_operation() -> None:
+        attempts["count"] += 1
+        raise RuntimeError("invalid table mapping")
+
+    monkeypatch.setattr("llm_behavior_diff.cli._sleep_export_retry", backoffs.append)
+
+    try:
+        cli_module._run_export_operation_with_retry(
+            connector="bigquery",
+            operation="insert_rows_json",
+            execute=non_transient_operation,
+        )
+    except RuntimeError as exc:
+        assert (
+            "connector=bigquery operation=insert_rows_json attempt 1/3 failed: "
+            "invalid table mapping" in str(exc)
+        )
+    else:
+        raise AssertionError("Expected RuntimeError for non-transient export failure")
+
+    assert attempts["count"] == 1
+    assert backoffs == []
+
+
+def test_export_retry_wrapper_caps_attempts_at_three(monkeypatch) -> None:
+    attempts = {"count": 0}
+    backoffs: list[float] = []
+
+    def always_transient() -> None:
+        attempts["count"] += 1
+        request = httpx.Request("POST", "https://example.com/hook")
+        raise httpx.ConnectError("connection reset by peer", request=request)
+
+    monkeypatch.setattr("llm_behavior_diff.cli._sleep_export_retry", backoffs.append)
+
+    try:
+        cli_module._run_export_operation_with_retry(
+            connector="http",
+            operation="post",
+            execute=always_transient,
+        )
+    except RuntimeError as exc:
+        assert (
+            "connector=http operation=post attempt 3/3 failed: "
+            "connection reset by peer" in str(exc)
+        )
+    else:
+        raise AssertionError("Expected RuntimeError after max retry attempts")
+
+    assert attempts["count"] == 3
+    assert backoffs == [0.55, 1.1]
+
+
+def test_export_retry_wrapper_non_transient_failure_is_immediate_for_all_connectors(
+    monkeypatch,
+) -> None:
+    connectors = [
+        "http",
+        "s3",
+        "gcs",
+        "bigquery",
+        "snowflake",
+        "redshift",
+        "azure_blob",
+        "databricks",
+    ]
+    for connector in connectors:
+        attempts = {"count": 0}
+        backoffs: list[float] = []
+
+        def non_transient_operation(attempts_ref: dict[str, int] = attempts) -> None:
+            attempts_ref["count"] += 1
+            raise RuntimeError("permission denied for sink")
+
+        monkeypatch.setattr("llm_behavior_diff.cli._sleep_export_retry", backoffs.append)
+
+        try:
+            cli_module._run_export_operation_with_retry(
+                connector=connector,
+                operation="upload_or_insert",
+                execute=non_transient_operation,
+            )
+        except RuntimeError as exc:
+            assert f"connector={connector} operation=upload_or_insert attempt 1/3 failed" in str(
+                exc
+            )
+        else:
+            raise AssertionError("Expected RuntimeError for non-transient export failure")
+
+        assert attempts["count"] == 1
+        assert backoffs == []
+
+
 def test_report_http_export_connector_success(tmp_path: Path, monkeypatch) -> None:
     report_path = tmp_path / "report_http_export.json"
     csv_path = tmp_path / "report_http_export.csv"
     captured: dict[str, object] = {}
+    attempts = {"count": 0}
+    backoffs: list[float] = []
 
     report = BehaviorReport(
         model_a="gpt-4o",
@@ -979,12 +1102,17 @@ def test_report_http_export_connector_success(tmp_path: Path, monkeypatch) -> No
             return None
 
     def fake_post(url: str, json: dict, headers: dict, timeout: float):
+        attempts["count"] += 1
+        if attempts["count"] == 1:
+            request = httpx.Request("POST", url)
+            raise httpx.ConnectError("temporary network issue", request=request)
         captured["url"] = url
         captured["payload"] = json
         captured["headers"] = headers
         captured["timeout"] = timeout
         return DummyResponse()
 
+    monkeypatch.setattr("llm_behavior_diff.cli._sleep_export_retry", backoffs.append)
     monkeypatch.setattr("llm_behavior_diff.cli.httpx.post", fake_post)
 
     result = CliRunner().invoke(
@@ -1018,6 +1146,8 @@ def test_report_http_export_connector_success(tmp_path: Path, monkeypatch) -> No
     assert payload["export"]["format"] == "csv"
     assert payload["export"]["content_type"] == "text/csv"
     assert "test_id" in payload["export"]["content"]
+    assert attempts["count"] == 2
+    assert backoffs == [0.55]
 
 
 def test_report_http_export_connector_requires_endpoint(tmp_path: Path) -> None:
@@ -1053,10 +1183,64 @@ def test_report_http_export_connector_requires_endpoint(tmp_path: Path) -> None:
     assert "export_endpoint is required" in result.output
 
 
+def test_report_http_export_connector_non_transient_failure_has_attempt_context(
+    tmp_path: Path, monkeypatch
+) -> None:
+    report_path = tmp_path / "report_http_export_failure.json"
+    csv_path = tmp_path / "report_http_export_failure.csv"
+    attempts = {"count": 0}
+    backoffs: list[float] = []
+
+    report = BehaviorReport(
+        model_a="gpt-4o",
+        model_b="gpt-4.5",
+        suite_name="suite_http_export",
+        total_tests=0,
+        total_diffs=0,
+        regressions=0,
+        improvements=0,
+        duration_seconds=0.0,
+    )
+    report_path.write_text(json.dumps(report.model_dump(mode="json"), indent=2), encoding="utf-8")
+
+    def fake_post(url: str, json: dict, headers: dict, timeout: float):
+        del json, headers, timeout
+        attempts["count"] += 1
+        request = httpx.Request("POST", url)
+        response = httpx.Response(400, request=request)
+        raise httpx.HTTPStatusError("bad request", request=request, response=response)
+
+    monkeypatch.setattr("llm_behavior_diff.cli._sleep_export_retry", backoffs.append)
+    monkeypatch.setattr("llm_behavior_diff.cli.httpx.post", fake_post)
+
+    result = CliRunner().invoke(
+        main,
+        [
+            "report",
+            str(report_path),
+            "--format",
+            "csv",
+            "--output",
+            str(csv_path),
+            "--export-connector",
+            "http",
+            "--export-endpoint",
+            "https://example.com/hooks/llm-diff",
+        ],
+    )
+
+    assert result.exit_code == 1
+    assert attempts["count"] == 1
+    assert backoffs == []
+    assert "connector=http operation=post attempt 1/3 failed: bad request" in result.output
+
+
 def test_report_s3_export_connector_success(tmp_path: Path, monkeypatch) -> None:
     report_path = tmp_path / "report_s3_export.json"
     ndjson_path = tmp_path / "report_s3_export.ndjson"
     captured: dict[str, object] = {}
+    attempts = {"count": 0}
+    backoffs: list[float] = []
 
     report = BehaviorReport(
         model_a="gpt-4o",
@@ -1088,6 +1272,9 @@ def test_report_s3_export_connector_success(tmp_path: Path, monkeypatch) -> None
 
     class FakeS3Client:
         def put_object(self, **kwargs):
+            attempts["count"] += 1
+            if attempts["count"] == 1:
+                raise TimeoutError("s3 timeout")
             captured["kwargs"] = kwargs
             return {"ETag": "test-etag"}
 
@@ -1096,6 +1283,7 @@ def test_report_s3_export_connector_success(tmp_path: Path, monkeypatch) -> None
         captured["timeout"] = timeout_seconds
         return FakeS3Client()
 
+    monkeypatch.setattr("llm_behavior_diff.cli._sleep_export_retry", backoffs.append)
     monkeypatch.setattr("llm_behavior_diff.cli._create_s3_client", fake_create_s3_client)
 
     result = CliRunner().invoke(
@@ -1131,6 +1319,8 @@ def test_report_s3_export_connector_success(tmp_path: Path, monkeypatch) -> None
     assert isinstance(kwargs["Body"], bytes)
     assert kwargs["Key"].startswith("team-a/exports/suite_s3_export/")
     assert kwargs["Key"].endswith("/report.ndjson")
+    assert attempts["count"] == 2
+    assert backoffs == [0.55]
 
 
 def test_report_s3_export_connector_requires_bucket(tmp_path: Path) -> None:
@@ -1170,6 +1360,8 @@ def test_report_gcs_export_connector_success_csv_and_ndjson(tmp_path: Path, monk
     report_path = tmp_path / "report_gcs_export.json"
     captured_uploads: list[dict[str, object]] = []
     captured_client: dict[str, object] = {}
+    attempts = {"count": 0}
+    backoffs: list[float] = []
 
     report = BehaviorReport(
         model_a="gpt-4o",
@@ -1204,6 +1396,9 @@ def test_report_gcs_export_connector_success_csv_and_ndjson(tmp_path: Path, monk
             self.key = key
 
         def upload_from_string(self, data: str, content_type: str, timeout: float) -> None:
+            attempts["count"] += 1
+            if attempts["count"] == 1:
+                raise TimeoutError("gcs temporary timeout")
             captured_uploads.append(
                 {
                     "key": self.key,
@@ -1230,6 +1425,7 @@ def test_report_gcs_export_connector_success_csv_and_ndjson(tmp_path: Path, monk
         captured_client["timeout"] = timeout_seconds
         return FakeGCSClient()
 
+    monkeypatch.setattr("llm_behavior_diff.cli._sleep_export_retry", backoffs.append)
     monkeypatch.setattr("llm_behavior_diff.cli._create_gcs_client", fake_create_gcs_client)
 
     csv_path = tmp_path / "report_gcs_export.csv"
@@ -1290,6 +1486,8 @@ def test_report_gcs_export_connector_success_csv_and_ndjson(tmp_path: Path, monk
     assert captured_uploads[1]["content_type"] == "application/x-ndjson"
     assert str(captured_uploads[0]["key"]).startswith("team-a/exports/suite_gcs_export/")
     assert str(captured_uploads[1]["key"]).endswith("/report.ndjson")
+    assert attempts["count"] == 3
+    assert backoffs == [0.55]
 
 
 def test_report_gcs_export_connector_requires_bucket(tmp_path: Path) -> None:
@@ -1331,6 +1529,8 @@ def test_report_azure_blob_export_connector_success_csv_and_ndjson(
     report_path = tmp_path / "report_azure_blob_export.json"
     captured_uploads: list[dict[str, object]] = []
     captured_client: dict[str, object] = {}
+    attempts = {"count": 0}
+    backoffs: list[float] = []
 
     report = BehaviorReport(
         model_a="gpt-4o",
@@ -1368,6 +1568,9 @@ def test_report_azure_blob_export_connector_success_csv_and_ndjson(
         def upload_blob(
             self, data: bytes, overwrite: bool, content_type: str, timeout: float
         ) -> None:
+            attempts["count"] += 1
+            if attempts["count"] == 1:
+                raise TimeoutError("azure blob timed out")
             captured_uploads.append(
                 {
                     "container": self.container,
@@ -1388,6 +1591,7 @@ def test_report_azure_blob_export_connector_success_csv_and_ndjson(
         captured_client["timeout"] = timeout_seconds
         return FakeBlobServiceClient()
 
+    monkeypatch.setattr("llm_behavior_diff.cli._sleep_export_retry", backoffs.append)
     monkeypatch.setattr(
         "llm_behavior_diff.cli._create_azure_blob_service_client",
         fake_create_azure_blob_service_client,
@@ -1453,6 +1657,8 @@ def test_report_azure_blob_export_connector_success_csv_and_ndjson(
     assert str(captured_uploads[0]["blob"]).startswith("team-a/exports/suite_azure_blob_export/")
     assert str(captured_uploads[1]["blob"]).endswith("/report.ndjson")
     assert isinstance(captured_uploads[0]["data"], bytes)
+    assert attempts["count"] == 3
+    assert backoffs == [0.55]
 
 
 def test_report_azure_blob_export_connector_requires_fields(tmp_path: Path) -> None:
@@ -1511,6 +1717,8 @@ def test_report_bigquery_export_connector_success(tmp_path: Path, monkeypatch) -
     report_path = tmp_path / "report_bigquery_export.json"
     ndjson_path = tmp_path / "report_bigquery_export.ndjson"
     captured: dict[str, object] = {}
+    attempts = {"count": 0}
+    backoffs: list[float] = []
 
     report = BehaviorReport(
         model_a="gpt-4o",
@@ -1541,8 +1749,16 @@ def test_report_bigquery_export_connector_success(tmp_path: Path, monkeypatch) -
     )
     report_path.write_text(json.dumps(report.model_dump(mode="json"), indent=2), encoding="utf-8")
 
+    class DeadlineExceeded(RuntimeError):
+        pass
+
+    DeadlineExceeded.__module__ = "google.api_core.exceptions"
+
     class FakeBigQueryClient:
         def insert_rows_json(self, table: str, rows: list[dict[str, object]], timeout: float):
+            attempts["count"] += 1
+            if attempts["count"] == 1:
+                raise DeadlineExceeded("service temporarily unavailable")
             captured["table"] = table
             captured["rows"] = rows
             captured["timeout"] = timeout
@@ -1553,6 +1769,7 @@ def test_report_bigquery_export_connector_success(tmp_path: Path, monkeypatch) -
         captured["location"] = location
         return FakeBigQueryClient()
 
+    monkeypatch.setattr("llm_behavior_diff.cli._sleep_export_retry", backoffs.append)
     monkeypatch.setattr(
         "llm_behavior_diff.cli._create_bigquery_client", fake_create_bigquery_client
     )
@@ -1594,6 +1811,8 @@ def test_report_bigquery_export_connector_success(tmp_path: Path, monkeypatch) -
     assert isinstance(row, dict)
     assert row["test_id"] == "bq_001"
     assert row["metadata_json"] == '{"comparator": "format"}'
+    assert attempts["count"] == 2
+    assert backoffs == [0.55]
 
 
 def test_report_bigquery_export_connector_requires_fields(tmp_path: Path) -> None:
@@ -1691,6 +1910,8 @@ def test_report_snowflake_export_connector_success_with_env_password(
     report_path = tmp_path / "report_snowflake_export.json"
     ndjson_path = tmp_path / "report_snowflake_export.ndjson"
     captured: dict[str, object] = {}
+    attempts = {"count": 0}
+    backoffs: list[float] = []
 
     report = BehaviorReport(
         model_a="gpt-4o",
@@ -1723,6 +1944,9 @@ def test_report_snowflake_export_connector_success_with_env_password(
 
     class FakeCursor:
         def executemany(self, query: str, rows: list[dict[str, object]]) -> None:
+            attempts["count"] += 1
+            if attempts["count"] == 1:
+                raise TimeoutError("snowflake connection timed out")
             captured["query"] = query
             captured["rows"] = rows
 
@@ -1745,6 +1969,7 @@ def test_report_snowflake_export_connector_success_with_env_password(
         return FakeConnection()
 
     monkeypatch.setenv("LLM_DIFF_EXPORT_SF_PASSWORD", "sf-secret")
+    monkeypatch.setattr("llm_behavior_diff.cli._sleep_export_retry", backoffs.append)
     monkeypatch.setattr(
         "llm_behavior_diff.cli._create_snowflake_connection", fake_create_snowflake_connection
     )
@@ -1804,6 +2029,8 @@ def test_report_snowflake_export_connector_success_with_env_password(
     assert captured["committed"] is True
     assert captured["cursor_closed"] is True
     assert captured["connection_closed"] is True
+    assert attempts["count"] == 2
+    assert backoffs == [0.55]
 
 
 def test_report_snowflake_export_connector_requires_fields(tmp_path: Path) -> None:
@@ -1931,6 +2158,8 @@ def test_report_redshift_export_connector_success_with_env_password(
     report_path = tmp_path / "report_redshift_export.json"
     ndjson_path = tmp_path / "report_redshift_export.ndjson"
     captured: dict[str, object] = {}
+    attempts = {"count": 0}
+    backoffs: list[float] = []
 
     report = BehaviorReport(
         model_a="gpt-4o",
@@ -1963,6 +2192,9 @@ def test_report_redshift_export_connector_success_with_env_password(
 
     class FakeCursor:
         def executemany(self, query: str, rows: list[dict[str, object]]) -> None:
+            attempts["count"] += 1
+            if attempts["count"] == 1:
+                raise TimeoutError("redshift timed out")
             captured["query"] = query
             captured["rows"] = rows
 
@@ -1985,6 +2217,7 @@ def test_report_redshift_export_connector_success_with_env_password(
         return FakeConnection()
 
     monkeypatch.setenv("LLM_DIFF_EXPORT_RS_PASSWORD", "rs-secret")
+    monkeypatch.setattr("llm_behavior_diff.cli._sleep_export_retry", backoffs.append)
     monkeypatch.setattr(
         "llm_behavior_diff.cli._create_redshift_connection", fake_create_redshift_connection
     )
@@ -2043,6 +2276,8 @@ def test_report_redshift_export_connector_success_with_env_password(
     assert captured["committed"] is True
     assert captured["cursor_closed"] is True
     assert captured["connection_closed"] is True
+    assert attempts["count"] == 2
+    assert backoffs == [0.55]
 
 
 def test_report_redshift_export_connector_requires_fields(tmp_path: Path) -> None:
@@ -2184,6 +2419,8 @@ def test_report_databricks_export_connector_success_with_env_token(
     report_path = tmp_path / "report_databricks_export.json"
     ndjson_path = tmp_path / "report_databricks_export.ndjson"
     captured: dict[str, object] = {}
+    attempts = {"count": 0}
+    backoffs: list[float] = []
 
     report = BehaviorReport(
         model_a="gpt-4o",
@@ -2216,6 +2453,9 @@ def test_report_databricks_export_connector_success_with_env_token(
 
     class FakeCursor:
         def executemany(self, query: str, rows: list[dict[str, object]]) -> None:
+            attempts["count"] += 1
+            if attempts["count"] == 1:
+                raise TimeoutError("databricks query timed out")
             captured["query"] = query
             captured["rows"] = rows
 
@@ -2238,6 +2478,7 @@ def test_report_databricks_export_connector_success_with_env_token(
         return FakeConnection()
 
     monkeypatch.setenv("LLM_DIFF_EXPORT_DBX_TOKEN", "dbx-secret")
+    monkeypatch.setattr("llm_behavior_diff.cli._sleep_export_retry", backoffs.append)
     monkeypatch.setattr(
         "llm_behavior_diff.cli._create_databricks_connection", fake_create_databricks_connection
     )
@@ -2289,6 +2530,8 @@ def test_report_databricks_export_connector_success_with_env_token(
     assert captured["committed"] is True
     assert captured["cursor_closed"] is True
     assert captured["connection_closed"] is True
+    assert attempts["count"] == 2
+    assert backoffs == [0.55]
 
 
 def test_report_databricks_export_connector_requires_fields(tmp_path: Path, monkeypatch) -> None:
