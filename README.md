@@ -301,6 +301,7 @@ Optional direct export connectors:
 - Snowflake (NDJSON only): `--export-connector snowflake --format ndjson --export-sf-account ... --export-sf-user ... --export-sf-warehouse ... --export-sf-database ... --export-sf-schema ... --export-sf-table ... [--export-sf-role ...]` (`--export-sf-password` or `LLM_DIFF_EXPORT_SF_PASSWORD`)
 - Redshift (NDJSON only): `--export-connector redshift --format ndjson --export-rs-host ... --export-rs-port 5439 --export-rs-database ... --export-rs-user ... --export-rs-schema ... --export-rs-table ... [--export-rs-sslmode ...]` (`--export-rs-password` or `LLM_DIFF_EXPORT_RS_PASSWORD`)
 - Databricks SQL (NDJSON only): `--export-connector databricks --format ndjson --export-dbx-host ... --export-dbx-http-path ... --export-dbx-catalog ... --export-dbx-schema ... --export-dbx-table ...` (`--export-dbx-token` or `LLM_DIFF_EXPORT_DBX_TOKEN`)
+- Export resilience contract: transient connector errors are retried automatically (`max_attempts=3`, backoff `0.5s`, `1.0s` + bounded jitter), and unresolved failures remain fail-fast.
 
 ### `llm-diff compare`
 
@@ -371,6 +372,7 @@ Implemented now:
 - artifact-first benchmark quality pack (advisory-only, with extended significance summary)
 - enterprise-ready report export artifacts (`csv`, `ndjson`, `junit`)
 - optional direct export connectors (`http`, `s3`, `gcs`, `bigquery`, `snowflake`, `redshift`, `azure_blob`, `databricks`; `gcs`/`azure_blob` support all non-table formats, `bigquery`/`snowflake`/`redshift`/`databricks` are NDJSON-only)
+- export connector reliability hardening (transient retries with fail-fast final semantics)
 - suite templates and CI distribution workflows
 
 Committed roadmap status:
