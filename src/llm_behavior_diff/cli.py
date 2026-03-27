@@ -233,6 +233,7 @@ def run(
             "redshift",
             "azure_blob",
             "databricks",
+            "postgres",
         ]
     ),
     default="none",
@@ -441,6 +442,50 @@ def run(
     type=str,
     help="Databricks table (required when --export-connector databricks)",
 )
+@click.option(
+    "--export-pg-host",
+    type=str,
+    help="PostgreSQL host (required when --export-connector postgres)",
+)
+@click.option(
+    "--export-pg-port",
+    type=int,
+    default=5432,
+    show_default=True,
+    help="PostgreSQL port",
+)
+@click.option(
+    "--export-pg-database",
+    type=str,
+    help="PostgreSQL database (required when --export-connector postgres)",
+)
+@click.option(
+    "--export-pg-user",
+    type=str,
+    help="PostgreSQL user (required when --export-connector postgres)",
+)
+@click.option(
+    "--export-pg-password",
+    type=str,
+    help="PostgreSQL password (optional flag; fallback: LLM_DIFF_EXPORT_PG_PASSWORD)",
+)
+@click.option(
+    "--export-pg-schema",
+    type=str,
+    help="PostgreSQL schema (required when --export-connector postgres)",
+)
+@click.option(
+    "--export-pg-table",
+    type=str,
+    help="PostgreSQL table (required when --export-connector postgres)",
+)
+@click.option(
+    "--export-pg-sslmode",
+    type=str,
+    default="require",
+    show_default=True,
+    help="PostgreSQL sslmode",
+)
 def report(
     report_file: str,
     format: str,
@@ -484,6 +529,14 @@ def report(
     export_dbx_catalog: Optional[str],
     export_dbx_schema: Optional[str],
     export_dbx_table: Optional[str],
+    export_pg_host: Optional[str],
+    export_pg_port: int,
+    export_pg_database: Optional[str],
+    export_pg_user: Optional[str],
+    export_pg_password: Optional[str],
+    export_pg_schema: Optional[str],
+    export_pg_table: Optional[str],
+    export_pg_sslmode: str,
 ) -> None:
     """
     Generate behavioral diff report from results.
@@ -569,6 +622,14 @@ def report(
                 dbx_catalog=export_dbx_catalog,
                 dbx_schema=export_dbx_schema,
                 dbx_table=export_dbx_table,
+                pg_host=export_pg_host,
+                pg_port=export_pg_port,
+                pg_database=export_pg_database,
+                pg_user=export_pg_user,
+                pg_password=export_pg_password,
+                pg_schema=export_pg_schema,
+                pg_table=export_pg_table,
+                pg_sslmode=export_pg_sslmode,
             )
             console.print("[green]External export delivered[/green]")
         except Exception as exc:
@@ -1426,6 +1487,13 @@ def _resolve_export_databricks_token(explicit_token: Optional[str]) -> Optional[
     return env_token or None
 
 
+def _resolve_export_postgres_password(explicit_password: Optional[str]) -> Optional[str]:
+    if explicit_password and explicit_password.strip():
+        return explicit_password.strip()
+    env_password = os.getenv("LLM_DIFF_EXPORT_PG_PASSWORD", "").strip()
+    return env_password or None
+
+
 def _content_type_for_report_format(report_format: str) -> str:
     mapping = {
         "json": "application/json",
@@ -1579,6 +1647,30 @@ def _create_redshift_connection(
         return redshift_connector.connect(**kwargs)
 
 
+def _create_postgres_connection(
+    *,
+    host: str,
+    port: int,
+    database: str,
+    user: str,
+    password: str,
+    sslmode: str,
+    timeout_seconds: float,
+) -> Any:
+    import psycopg
+
+    connect_timeout = max(1, int(timeout_seconds))
+    return psycopg.connect(
+        host=host,
+        port=port,
+        dbname=database,
+        user=user,
+        password=password,
+        sslmode=sslmode,
+        connect_timeout=connect_timeout,
+    )
+
+
 def _normalize_databricks_host(host: str) -> str:
     normalized = host.strip()
     if not normalized:
@@ -1634,6 +1726,14 @@ def _quote_databricks_identifier(identifier: str) -> str:
     normalized = identifier.strip()
     if not normalized:
         raise ValueError("Databricks identifier must not be empty.")
+    escaped = normalized.replace('"', '""')
+    return f'"{escaped}"'
+
+
+def _quote_postgres_identifier(identifier: str) -> str:
+    normalized = identifier.strip()
+    if not normalized:
+        raise ValueError("PostgreSQL identifier must not be empty.")
     escaped = normalized.replace('"', '""')
     return f'"{escaped}"'
 
@@ -1809,7 +1909,7 @@ def _is_transient_export_error(connector: str, exc: Exception) -> bool:
         if class_name == "HttpResponseError" and status_code in _TRANSIENT_HTTP_STATUS_CODES:
             return True
 
-    if connector in {"snowflake", "redshift", "databricks"}:
+    if connector in {"snowflake", "redshift", "databricks", "postgres"}:
         if _is_auth_or_permission_message(message):
             return False
         if _is_likely_transient_message(message):
@@ -1897,6 +1997,14 @@ def _dispatch_report_export(
     dbx_catalog: Optional[str],
     dbx_schema: Optional[str],
     dbx_table: Optional[str],
+    pg_host: Optional[str],
+    pg_port: int,
+    pg_database: Optional[str],
+    pg_user: Optional[str],
+    pg_password: Optional[str],
+    pg_schema: Optional[str],
+    pg_table: Optional[str],
+    pg_sslmode: str,
 ) -> None:
     if timeout_seconds <= 0:
         raise ValueError("export_timeout must be > 0")
@@ -2275,9 +2383,75 @@ def _dispatch_report_export(
         )
         return
 
+    if normalized == "postgres":
+        if report_format != "ndjson":
+            raise ValueError("export_connector 'postgres' supports only --format ndjson.")
+        if not pg_host or not pg_host.strip():
+            raise ValueError("export_pg_host is required when export_connector is 'postgres'.")
+        if pg_port <= 0:
+            raise ValueError("export_pg_port must be > 0 when export_connector is 'postgres'.")
+        if not pg_database or not pg_database.strip():
+            raise ValueError("export_pg_database is required when export_connector is 'postgres'.")
+        if not pg_user or not pg_user.strip():
+            raise ValueError("export_pg_user is required when export_connector is 'postgres'.")
+        resolved_pg_password = _resolve_export_postgres_password(pg_password)
+        if not resolved_pg_password:
+            raise ValueError(
+                "PostgreSQL password is required via --export-pg-password or "
+                "LLM_DIFF_EXPORT_PG_PASSWORD."
+            )
+        if not pg_schema or not pg_schema.strip():
+            raise ValueError("export_pg_schema is required when export_connector is 'postgres'.")
+        if not pg_table or not pg_table.strip():
+            raise ValueError("export_pg_table is required when export_connector is 'postgres'.")
+        if not pg_sslmode or not pg_sslmode.strip():
+            raise ValueError(
+                "export_pg_sslmode must not be empty when export_connector is 'postgres'."
+            )
+
+        rows = _build_bigquery_rows_from_ndjson(content)
+        if not rows:
+            return
+
+        quoted_table = ".".join(
+            [
+                _quote_postgres_identifier(pg_schema),
+                _quote_postgres_identifier(pg_table),
+            ]
+        )
+        columns = list(rows[0].keys())
+        quoted_columns = ", ".join(_quote_postgres_identifier(column) for column in columns)
+        placeholders = ", ".join(f"%({column})s" for column in columns)
+        query = f"INSERT INTO {quoted_table} ({quoted_columns}) VALUES ({placeholders})"
+
+        def _insert_postgres_rows() -> None:
+            connection = _create_postgres_connection(
+                host=pg_host.strip(),
+                port=pg_port,
+                database=pg_database.strip(),
+                user=pg_user.strip(),
+                password=resolved_pg_password,
+                sslmode=pg_sslmode.strip(),
+                timeout_seconds=timeout_seconds,
+            )
+            cursor = connection.cursor()
+            try:
+                cursor.executemany(query, rows)
+                connection.commit()
+            finally:
+                cursor.close()
+                connection.close()
+
+        _run_export_operation_with_retry(
+            connector=normalized,
+            operation="executemany",
+            execute=_insert_postgres_rows,
+        )
+        return
+
     raise ValueError(
         f"Unsupported export connector '{connector}'. Supported: none, http, s3, gcs, "
-        "bigquery, snowflake, redshift, azure_blob, databricks."
+        "bigquery, snowflake, redshift, azure_blob, databricks, postgres."
     )
 
 

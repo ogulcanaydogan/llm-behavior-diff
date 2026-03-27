@@ -129,6 +129,7 @@ def test_model_upgrade_workflow_has_factual_connector_inputs_and_export_wiring()
     assert "redshift" in options
     assert "azure_blob" in options
     assert "databricks" in options
+    assert "postgres" in options
 
     job_env = workflow["jobs"]["regression-gate"]["env"]
     assert isinstance(job_env, dict)
@@ -152,6 +153,14 @@ def test_model_upgrade_workflow_has_factual_connector_inputs_and_export_wiring()
     assert job_env.get("EXPORT_DBX_SCHEMA") == "${{ vars.EXPORT_DBX_SCHEMA }}"
     assert job_env.get("EXPORT_DBX_TABLE") == "${{ vars.EXPORT_DBX_TABLE }}"
     assert job_env.get("LLM_DIFF_EXPORT_DBX_TOKEN") == "${{ secrets.DATABRICKS_TOKEN }}"
+    assert job_env.get("EXPORT_PG_HOST") == "${{ vars.EXPORT_PG_HOST }}"
+    assert job_env.get("EXPORT_PG_PORT") == "${{ vars.EXPORT_PG_PORT }}"
+    assert job_env.get("EXPORT_PG_DATABASE") == "${{ vars.EXPORT_PG_DATABASE }}"
+    assert job_env.get("EXPORT_PG_USER") == "${{ vars.EXPORT_PG_USER }}"
+    assert job_env.get("EXPORT_PG_SCHEMA") == "${{ vars.EXPORT_PG_SCHEMA }}"
+    assert job_env.get("EXPORT_PG_TABLE") == "${{ vars.EXPORT_PG_TABLE }}"
+    assert job_env.get("EXPORT_PG_SSLMODE") == "${{ vars.EXPORT_PG_SSLMODE }}"
+    assert job_env.get("LLM_DIFF_EXPORT_PG_PASSWORD") == "${{ secrets.POSTGRES_PASSWORD }}"
 
     steps = workflow["jobs"]["regression-gate"]["steps"]
     assert isinstance(steps, list)
@@ -209,6 +218,13 @@ def test_model_upgrade_workflow_has_factual_connector_inputs_and_export_wiring()
     assert '--export-dbx-catalog "$EXPORT_DBX_CATALOG"' in run_script
     assert '--export-dbx-schema "$EXPORT_DBX_SCHEMA"' in run_script
     assert '--export-dbx-table "$EXPORT_DBX_TABLE"' in run_script
+    assert '--export-pg-host "$EXPORT_PG_HOST"' in run_script
+    assert '--export-pg-port "${EXPORT_PG_PORT:-5432}"' in run_script
+    assert '--export-pg-database "$EXPORT_PG_DATABASE"' in run_script
+    assert '--export-pg-user "$EXPORT_PG_USER"' in run_script
+    assert '--export-pg-schema "$EXPORT_PG_SCHEMA"' in run_script
+    assert '--export-pg-table "$EXPORT_PG_TABLE"' in run_script
+    assert '--export-pg-sslmode "${EXPORT_PG_SSLMODE:-require}"' in run_script
     assert "SNOWFLAKE_PASSWORD secret is required when export_connector=snowflake." in run_script
     assert "REDSHIFT_PASSWORD secret is required when export_connector=redshift." in run_script
     assert (
@@ -247,14 +263,37 @@ def test_model_upgrade_workflow_has_factual_connector_inputs_and_export_wiring()
         in run_script
     )
     assert "DATABRICKS_TOKEN secret is required when export_connector=databricks." in run_script
+    assert (
+        "EXPORT_PG_HOST repository variable is required when export_connector=postgres."
+        in run_script
+    )
+    assert (
+        "EXPORT_PG_DATABASE repository variable is required when export_connector=postgres."
+        in run_script
+    )
+    assert (
+        "EXPORT_PG_USER repository variable is required when export_connector=postgres."
+        in run_script
+    )
+    assert "POSTGRES_PASSWORD secret is required when export_connector=postgres." in run_script
+    assert (
+        "EXPORT_PG_SCHEMA repository variable is required when export_connector=postgres."
+        in run_script
+    )
+    assert (
+        "EXPORT_PG_TABLE repository variable is required when export_connector=postgres."
+        in run_script
+    )
     assert 'elif [ "$EXPORT_CONNECTOR" = "gcs" ]; then' in run_script
     assert 'elif [ "$EXPORT_CONNECTOR" = "azure_blob" ]; then' in run_script
     assert 'elif [ "$EXPORT_CONNECTOR" = "bigquery" ]; then' in run_script
     assert 'elif [ "$EXPORT_CONNECTOR" = "snowflake" ]; then' in run_script
     assert 'elif [ "$EXPORT_CONNECTOR" = "redshift" ]; then' in run_script
     assert 'elif [ "$EXPORT_CONNECTOR" = "databricks" ]; then' in run_script
+    assert 'elif [ "$EXPORT_CONNECTOR" = "postgres" ]; then' in run_script
     assert "REDSHIFT_PASSWORD" in call_secrets
     assert "DATABRICKS_TOKEN" in call_secrets
+    assert "POSTGRES_PASSWORD" in call_secrets
 
     export_step = next(
         step

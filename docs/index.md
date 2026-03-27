@@ -21,7 +21,7 @@ Current release baseline: **GA v1.0.0**.
 - Track token usage and estimated cost metadata
 - Generate table/json/html/markdown/csv/ndjson/junit reports
 - Build advisory benchmark summaries from one or more report JSON artifacts
-- Optionally dispatch rendered report exports to external HTTP endpoints, S3, GCS, BigQuery, Snowflake, Redshift, Azure Blob, or Databricks SQL (`gcs`/`azure_blob` support all non-table formats; `bigquery`/`snowflake`/`redshift`/`databricks` are NDJSON-only)
+- Optionally dispatch rendered report exports to external HTTP endpoints, S3, GCS, BigQuery, Snowflake, Redshift, Azure Blob, Databricks SQL, or PostgreSQL (`gcs`/`azure_blob` support all non-table formats; `bigquery`/`snowflake`/`redshift`/`databricks`/`postgres` are NDJSON-only)
 - Enforce upgrade gates in CI using built-in suites
 
 ## Fast Example

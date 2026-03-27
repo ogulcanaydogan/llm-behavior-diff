@@ -78,6 +78,7 @@ on:
           - redshift
           - azure_blob
           - databricks
+          - postgres
       export_connector_endpoint:
         description: "Optional export connector endpoint URL (required for export_connector=http)"
         required: false
@@ -242,6 +243,8 @@ on:
         required: false
       DATABRICKS_TOKEN:
         required: false
+      POSTGRES_PASSWORD:
+        required: false
 
 permissions:
   contents: read
@@ -305,12 +308,20 @@ jobs:
       EXPORT_DBX_CATALOG: ${{ vars.EXPORT_DBX_CATALOG }}
       EXPORT_DBX_SCHEMA: ${{ vars.EXPORT_DBX_SCHEMA }}
       EXPORT_DBX_TABLE: ${{ vars.EXPORT_DBX_TABLE }}
+      EXPORT_PG_HOST: ${{ vars.EXPORT_PG_HOST }}
+      EXPORT_PG_PORT: ${{ vars.EXPORT_PG_PORT }}
+      EXPORT_PG_DATABASE: ${{ vars.EXPORT_PG_DATABASE }}
+      EXPORT_PG_USER: ${{ vars.EXPORT_PG_USER }}
+      EXPORT_PG_SCHEMA: ${{ vars.EXPORT_PG_SCHEMA }}
+      EXPORT_PG_TABLE: ${{ vars.EXPORT_PG_TABLE }}
+      EXPORT_PG_SSLMODE: ${{ vars.EXPORT_PG_SSLMODE }}
       AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
       AWS_SESSION_TOKEN: ${{ secrets.AWS_SESSION_TOKEN }}
       LLM_DIFF_EXPORT_SF_PASSWORD: ${{ secrets.SNOWFLAKE_PASSWORD }}
       LLM_DIFF_EXPORT_RS_PASSWORD: ${{ secrets.REDSHIFT_PASSWORD }}
       LLM_DIFF_EXPORT_DBX_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
+      LLM_DIFF_EXPORT_PG_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
 
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
@@ -554,6 +565,39 @@ jobs:
               connector_args+=(--export-dbx-catalog "$EXPORT_DBX_CATALOG")
               connector_args+=(--export-dbx-schema "$EXPORT_DBX_SCHEMA")
               connector_args+=(--export-dbx-table "$EXPORT_DBX_TABLE")
+              export_args_ndjson=("${connector_args[@]}")
+            elif [ "$EXPORT_CONNECTOR" = "postgres" ]; then
+              if [ -z "$EXPORT_PG_HOST" ]; then
+                echo "EXPORT_PG_HOST repository variable is required when export_connector=postgres."
+                exit 1
+              fi
+              if [ -z "$EXPORT_PG_DATABASE" ]; then
+                echo "EXPORT_PG_DATABASE repository variable is required when export_connector=postgres."
+                exit 1
+              fi
+              if [ -z "$EXPORT_PG_USER" ]; then
+                echo "EXPORT_PG_USER repository variable is required when export_connector=postgres."
+                exit 1
+              fi
+              if [ -z "$LLM_DIFF_EXPORT_PG_PASSWORD" ]; then
+                echo "POSTGRES_PASSWORD secret is required when export_connector=postgres."
+                exit 1
+              fi
+              if [ -z "$EXPORT_PG_SCHEMA" ]; then
+                echo "EXPORT_PG_SCHEMA repository variable is required when export_connector=postgres."
+                exit 1
+              fi
+              if [ -z "$EXPORT_PG_TABLE" ]; then
+                echo "EXPORT_PG_TABLE repository variable is required when export_connector=postgres."
+                exit 1
+              fi
+              connector_args+=(--export-pg-host "$EXPORT_PG_HOST")
+              connector_args+=(--export-pg-port "${EXPORT_PG_PORT:-5432}")
+              connector_args+=(--export-pg-database "$EXPORT_PG_DATABASE")
+              connector_args+=(--export-pg-user "$EXPORT_PG_USER")
+              connector_args+=(--export-pg-schema "$EXPORT_PG_SCHEMA")
+              connector_args+=(--export-pg-table "$EXPORT_PG_TABLE")
+              connector_args+=(--export-pg-sslmode "${EXPORT_PG_SSLMODE:-require}")
               export_args_ndjson=("${connector_args[@]}")
             else
               echo "Unsupported export_connector: $EXPORT_CONNECTOR"
