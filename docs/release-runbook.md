@@ -85,7 +85,7 @@ Inputs:
 - `factual_connector` (optional, default `none`): `none|wikipedia`
 - `factual_connector_timeout` (optional, default `8`)
 - `factual_connector_max_results` (optional, default `3`)
-- `export_connector` (optional, default `none`): `none|http|s3|gcs|bigquery|snowflake|redshift|azure_blob|databricks|postgres|clickhouse|mssql`
+- `export_connector` (optional, default `none`): `none|http|s3|gcs|bigquery|snowflake|redshift|azure_blob|databricks|postgres|clickhouse|mssql|oracle`
 - `export_connector_endpoint` (optional): required when `export_connector=http`
 - `export_connector_timeout` (optional, default `10`)
 - `export_s3_bucket` (optional): required when `export_connector=s3`
@@ -160,6 +160,16 @@ MSSQL workflow wiring (env-based, no new workflow input):
 - `EXPORT_MS_SCHEMA` repository variable is required when `export_connector=mssql`
 - `EXPORT_MS_TABLE` repository variable is required when `export_connector=mssql`
 - `MSSQL_PASSWORD` secret is required when `export_connector=mssql`
+
+Oracle workflow wiring (env-based, no new workflow input):
+
+- `EXPORT_OR_HOST` repository variable is required when `export_connector=oracle`
+- `EXPORT_OR_PORT` repository variable is optional (default `1521`)
+- `EXPORT_OR_SERVICE_NAME` repository variable is required when `export_connector=oracle`
+- `EXPORT_OR_USER` repository variable is required when `export_connector=oracle`
+- `EXPORT_OR_SCHEMA` repository variable is required when `export_connector=oracle`
+- `EXPORT_OR_TABLE` repository variable is required when `export_connector=oracle`
+- `ORACLE_PASSWORD` secret is required when `export_connector=oracle`
 
 Default suite set when `suite_list` is empty:
 
@@ -257,6 +267,12 @@ Artifacts:
   password from `--export-ms-password` or `LLM_DIFF_EXPORT_MS_PASSWORD`
   (workflow: `MSSQL_PASSWORD` secret).
 - MSSQL export follows fail-fast semantics: missing config, authentication errors,
+  or row insert errors fail the command/workflow step.
+- When `export_connector=oracle` is enabled, only NDJSON exports are uploaded to
+  Oracle (`export_or_schema.export_or_table`) using connection fields from repo vars and
+  password from `--export-or-password` or `LLM_DIFF_EXPORT_OR_PASSWORD`
+  (workflow: `ORACLE_PASSWORD` secret).
+- Oracle export follows fail-fast semantics: missing config, authentication errors,
   or row insert errors fail the command/workflow step.
 - When external factual connector is enabled, reports include metadata-only
   `factual_external` comparator payloads and run-level `factual_external_summary`.

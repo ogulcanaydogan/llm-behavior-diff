@@ -143,6 +143,14 @@ llm-diff report report.json --format ndjson -o report.ndjson \
   --export-ms-user svc_llm_diff \
   --export-ms-schema llm_diff \
   --export-ms-table diff_rows
+llm-diff report report.json --format ndjson -o report.ndjson \
+  --export-connector oracle \
+  --export-or-host oracle.example.com \
+  --export-or-port 1521 \
+  --export-or-service-name ORCLPDB1 \
+  --export-or-user svc_llm_diff \
+  --export-or-schema llm_diff \
+  --export-or-table diff_rows
 ```
 
 Options:
@@ -150,7 +158,7 @@ Options:
 - `report_file` (required): JSON report path
 - `--format`: `table` (default), `json`, `html`, `markdown`, `csv`, `ndjson`, `junit`
 - `--output`, `-o`: output file path (stdout when omitted)
-- `--export-connector`: `none` (default), `http`, `s3`, `gcs`, `bigquery`, `snowflake`, `redshift`, `azure_blob`, `databricks`, `postgres`, `clickhouse`, or `mssql`
+- `--export-connector`: `none` (default), `http`, `s3`, `gcs`, `bigquery`, `snowflake`, `redshift`, `azure_blob`, `databricks`, `postgres`, `clickhouse`, `mssql`, or `oracle`
 - `--export-endpoint`: required when `--export-connector=http`
 - `--export-timeout`: connector timeout seconds (default `10.0`)
 - `--export-api-key`: optional explicit API key (fallback: `LLM_DIFF_EXPORT_API_KEY`)
@@ -207,6 +215,13 @@ Options:
 - `--export-ms-password`: optional explicit MSSQL password (fallback: `LLM_DIFF_EXPORT_MS_PASSWORD`)
 - `--export-ms-schema`: required when `--export-connector=mssql`
 - `--export-ms-table`: required when `--export-connector=mssql`
+- `--export-or-host`: required when `--export-connector=oracle`
+- `--export-or-port`: optional Oracle port (default `1521`)
+- `--export-or-service-name`: required when `--export-connector=oracle`
+- `--export-or-user`: required when `--export-connector=oracle`
+- `--export-or-password`: optional explicit Oracle password (fallback: `LLM_DIFF_EXPORT_OR_PASSWORD`)
+- `--export-or-schema`: required when `--export-connector=oracle`
+- `--export-or-table`: required when `--export-connector=oracle`
 
 `report` table/markdown output includes run-level bootstrap + Wilson confidence intervals when
 `metadata.significance` is present.
@@ -219,7 +234,7 @@ Export format behavior:
 - `csv`: one row per `diff_result`, metric-focused columns, no raw model responses.
 - `ndjson`: one JSON object per `diff_result`, includes run context + comparator metadata + raw responses.
 - `junit`: one `<testcase>` per `diff_result`; `is_regression=true` maps to `<failure>`, others pass with status in `system-out`.
-- direct connector dispatch is opt-in and supports `http`, `s3`, `gcs`, `bigquery`, `snowflake`, `redshift`, `azure_blob`, `databricks`, `postgres`, `clickhouse`, and `mssql`.
+- direct connector dispatch is opt-in and supports `http`, `s3`, `gcs`, `bigquery`, `snowflake`, `redshift`, `azure_blob`, `databricks`, `postgres`, `clickhouse`, `mssql`, and `oracle`.
 - connector dispatch requires non-`table` formats.
 - `gcs` supports all non-`table` report formats and uses ADC credentials.
 - `azure_blob` supports all non-`table` report formats and uses `DefaultAzureCredential`.
@@ -230,6 +245,7 @@ Export format behavior:
 - `postgres` dispatch requires `--format ndjson` and fails fast on insert errors.
 - `clickhouse` dispatch requires `--format ndjson` and fails fast on insert errors.
 - `mssql` dispatch requires `--format ndjson` and fails fast on insert errors.
+- `oracle` dispatch requires `--format ndjson` and fails fast on insert errors.
 
 ## `llm-diff compare`
 

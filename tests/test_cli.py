@@ -1037,6 +1037,7 @@ def test_export_retry_wrapper_non_transient_failure_is_immediate_for_all_connect
         "postgres",
         "clickhouse",
         "mssql",
+        "oracle",
     ]
     for connector in connectors:
         attempts = {"count": 0}
@@ -3165,6 +3166,267 @@ def test_report_mssql_export_connector_rejects_non_ndjson_format(tmp_path: Path)
             "--export-ms-schema",
             "llm_diff",
             "--export-ms-table",
+            "diff_rows",
+        ],
+    )
+
+    assert result.exit_code == 1
+    assert "supports only --format ndjson" in result.output
+
+
+def test_report_oracle_export_connector_success_with_env_password(
+    tmp_path: Path, monkeypatch
+) -> None:
+    report_path = tmp_path / "report_oracle_export.json"
+    ndjson_path = tmp_path / "report_oracle_export.ndjson"
+    captured: dict[str, object] = {}
+    attempts = {"count": 0}
+    backoffs: list[float] = []
+
+    report = BehaviorReport(
+        model_a="gpt-4o",
+        model_b="gpt-4.5",
+        suite_name="suite_oracle_export",
+        total_tests=1,
+        total_diffs=1,
+        regressions=1,
+        improvements=0,
+        duration_seconds=0.6,
+        diff_results=[
+            DiffResult(
+                test_id="or_001",
+                model_a="gpt-4o",
+                model_b="gpt-4.5",
+                response_a="a",
+                response_b="b",
+                is_semantically_same=False,
+                semantic_similarity=0.12,
+                behavior_category=BehaviorCategory.KNOWLEDGE_CHANGE,
+                is_regression=True,
+                is_improvement=False,
+                confidence=0.8,
+                explanation="regression",
+                metadata={"comparator": "semantic"},
+            )
+        ],
+    )
+    report_path.write_text(json.dumps(report.model_dump(mode="json"), indent=2), encoding="utf-8")
+
+    class FakeCursor:
+        def executemany(self, query: str, rows: list[tuple[object, ...]]) -> None:
+            attempts["count"] += 1
+            if attempts["count"] == 1:
+                raise TimeoutError("oracle connection timed out")
+            captured["query"] = query
+            captured["rows"] = rows
+
+        def close(self) -> None:
+            captured["cursor_closed"] = True
+
+    class FakeConnection:
+        def cursor(self) -> FakeCursor:
+            captured["cursor_opened"] = True
+            return FakeCursor()
+
+        def commit(self) -> None:
+            captured["committed"] = True
+
+        def close(self) -> None:
+            captured["connection_closed"] = True
+
+    def fake_create_oracle_connection(**kwargs):
+        captured["connect_kwargs"] = kwargs
+        return FakeConnection()
+
+    monkeypatch.setenv("LLM_DIFF_EXPORT_OR_PASSWORD", "or-secret")
+    monkeypatch.setattr("llm_behavior_diff.cli._sleep_export_retry", backoffs.append)
+    monkeypatch.setattr(
+        "llm_behavior_diff.cli._create_oracle_connection", fake_create_oracle_connection
+    )
+
+    result = CliRunner().invoke(
+        main,
+        [
+            "report",
+            str(report_path),
+            "--format",
+            "ndjson",
+            "--output",
+            str(ndjson_path),
+            "--export-connector",
+            "oracle",
+            "--export-or-host",
+            "oracle.example.com",
+            "--export-or-port",
+            "1521",
+            "--export-or-service-name",
+            "ORCLPDB1",
+            "--export-or-user",
+            "svc_llm_diff",
+            "--export-or-schema",
+            "llm_diff",
+            "--export-or-table",
+            "diff_rows",
+            "--export-timeout",
+            "6",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert "External export delivered" in result.output
+
+    connect_kwargs = captured["connect_kwargs"]
+    assert isinstance(connect_kwargs, dict)
+    assert connect_kwargs["host"] == "oracle.example.com"
+    assert connect_kwargs["port"] == 1521
+    assert connect_kwargs["service_name"] == "ORCLPDB1"
+    assert connect_kwargs["user"] == "svc_llm_diff"
+    assert connect_kwargs["password"] == "or-secret"
+    assert connect_kwargs["timeout_seconds"] == 6.0
+
+    query = captured["query"]
+    assert isinstance(query, str)
+    assert 'INSERT INTO "llm_diff"."diff_rows"' in query
+    rows = captured["rows"]
+    assert isinstance(rows, list)
+    assert len(rows) == 1
+    first_row = rows[0]
+    assert isinstance(first_row, tuple)
+    assert first_row[4] == "or_001"
+    assert first_row[-1] == '{"comparator": "semantic"}'
+    assert captured["committed"] is True
+    assert captured["cursor_closed"] is True
+    assert captured["connection_closed"] is True
+    assert attempts["count"] == 2
+    assert backoffs == [0.55]
+
+
+def test_report_oracle_export_connector_requires_fields(tmp_path: Path, monkeypatch) -> None:
+    report_path = tmp_path / "report_oracle_export_missing_fields.json"
+    ndjson_path = tmp_path / "report_oracle_export_missing_fields.ndjson"
+    report = BehaviorReport(
+        model_a="gpt-4o",
+        model_b="gpt-4.5",
+        suite_name="suite_oracle_export",
+        total_tests=0,
+        total_diffs=0,
+        regressions=0,
+        improvements=0,
+        duration_seconds=0.0,
+    )
+    report_path.write_text(json.dumps(report.model_dump(mode="json"), indent=2), encoding="utf-8")
+    monkeypatch.delenv("LLM_DIFF_EXPORT_OR_PASSWORD", raising=False)
+
+    base_args = [
+        "report",
+        str(report_path),
+        "--format",
+        "ndjson",
+        "--output",
+        str(ndjson_path),
+        "--export-connector",
+        "oracle",
+    ]
+
+    missing_host = CliRunner().invoke(
+        main,
+        [
+            *base_args,
+            "--export-or-service-name",
+            "ORCLPDB1",
+            "--export-or-user",
+            "svc_llm_diff",
+            "--export-or-schema",
+            "llm_diff",
+            "--export-or-table",
+            "diff_rows",
+            "--export-or-password",
+            "or-secret",
+        ],
+    )
+    assert missing_host.exit_code == 1
+    assert "export_or_host is required" in missing_host.output
+
+    missing_password = CliRunner().invoke(
+        main,
+        [
+            *base_args,
+            "--export-or-host",
+            "oracle.example.com",
+            "--export-or-service-name",
+            "ORCLPDB1",
+            "--export-or-user",
+            "svc_llm_diff",
+            "--export-or-schema",
+            "llm_diff",
+            "--export-or-table",
+            "diff_rows",
+        ],
+    )
+    assert missing_password.exit_code == 1
+    assert "Oracle password is required" in missing_password.output
+
+    invalid_port = CliRunner().invoke(
+        main,
+        [
+            *base_args,
+            "--export-or-host",
+            "oracle.example.com",
+            "--export-or-port",
+            "0",
+            "--export-or-service-name",
+            "ORCLPDB1",
+            "--export-or-user",
+            "svc_llm_diff",
+            "--export-or-schema",
+            "llm_diff",
+            "--export-or-table",
+            "diff_rows",
+            "--export-or-password",
+            "or-secret",
+        ],
+    )
+    assert invalid_port.exit_code == 1
+    assert "export_or_port must be > 0" in invalid_port.output
+
+
+def test_report_oracle_export_connector_rejects_non_ndjson_format(tmp_path: Path) -> None:
+    report_path = tmp_path / "report_oracle_export_non_ndjson.json"
+    csv_path = tmp_path / "report_oracle_export_non_ndjson.csv"
+    report = BehaviorReport(
+        model_a="gpt-4o",
+        model_b="gpt-4.5",
+        suite_name="suite_oracle_export",
+        total_tests=0,
+        total_diffs=0,
+        regressions=0,
+        improvements=0,
+        duration_seconds=0.0,
+    )
+    report_path.write_text(json.dumps(report.model_dump(mode="json"), indent=2), encoding="utf-8")
+
+    result = CliRunner().invoke(
+        main,
+        [
+            "report",
+            str(report_path),
+            "--format",
+            "csv",
+            "--output",
+            str(csv_path),
+            "--export-connector",
+            "oracle",
+            "--export-or-host",
+            "oracle.example.com",
+            "--export-or-service-name",
+            "ORCLPDB1",
+            "--export-or-user",
+            "svc_llm_diff",
+            "--export-or-password",
+            "or-secret",
+            "--export-or-schema",
+            "llm_diff",
+            "--export-or-table",
             "diff_rows",
         ],
     )

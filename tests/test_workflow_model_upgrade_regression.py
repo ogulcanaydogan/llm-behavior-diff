@@ -132,6 +132,7 @@ def test_model_upgrade_workflow_has_factual_connector_inputs_and_export_wiring()
     assert "postgres" in options
     assert "clickhouse" in options
     assert "mssql" in options
+    assert "oracle" in options
 
     job_env = workflow["jobs"]["regression-gate"]["env"]
     assert isinstance(job_env, dict)
@@ -170,9 +171,16 @@ def test_model_upgrade_workflow_has_factual_connector_inputs_and_export_wiring()
     assert job_env.get("EXPORT_MS_USER") == "${{ vars.EXPORT_MS_USER }}"
     assert job_env.get("EXPORT_MS_SCHEMA") == "${{ vars.EXPORT_MS_SCHEMA }}"
     assert job_env.get("EXPORT_MS_TABLE") == "${{ vars.EXPORT_MS_TABLE }}"
+    assert job_env.get("EXPORT_OR_HOST") == "${{ vars.EXPORT_OR_HOST }}"
+    assert job_env.get("EXPORT_OR_PORT") == "${{ vars.EXPORT_OR_PORT }}"
+    assert job_env.get("EXPORT_OR_SERVICE_NAME") == "${{ vars.EXPORT_OR_SERVICE_NAME }}"
+    assert job_env.get("EXPORT_OR_USER") == "${{ vars.EXPORT_OR_USER }}"
+    assert job_env.get("EXPORT_OR_SCHEMA") == "${{ vars.EXPORT_OR_SCHEMA }}"
+    assert job_env.get("EXPORT_OR_TABLE") == "${{ vars.EXPORT_OR_TABLE }}"
     assert job_env.get("LLM_DIFF_EXPORT_PG_PASSWORD") == "${{ secrets.POSTGRES_PASSWORD }}"
     assert job_env.get("LLM_DIFF_EXPORT_CH_DSN") == "${{ secrets.CLICKHOUSE_DSN }}"
     assert job_env.get("LLM_DIFF_EXPORT_MS_PASSWORD") == "${{ secrets.MSSQL_PASSWORD }}"
+    assert job_env.get("LLM_DIFF_EXPORT_OR_PASSWORD") == "${{ secrets.ORACLE_PASSWORD }}"
 
     steps = workflow["jobs"]["regression-gate"]["steps"]
     assert isinstance(steps, list)
@@ -245,6 +253,12 @@ def test_model_upgrade_workflow_has_factual_connector_inputs_and_export_wiring()
     assert '--export-ms-user "$EXPORT_MS_USER"' in run_script
     assert '--export-ms-schema "$EXPORT_MS_SCHEMA"' in run_script
     assert '--export-ms-table "$EXPORT_MS_TABLE"' in run_script
+    assert '--export-or-host "$EXPORT_OR_HOST"' in run_script
+    assert '--export-or-port "${EXPORT_OR_PORT:-1521}"' in run_script
+    assert '--export-or-service-name "$EXPORT_OR_SERVICE_NAME"' in run_script
+    assert '--export-or-user "$EXPORT_OR_USER"' in run_script
+    assert '--export-or-schema "$EXPORT_OR_SCHEMA"' in run_script
+    assert '--export-or-table "$EXPORT_OR_TABLE"' in run_script
     assert "SNOWFLAKE_PASSWORD secret is required when export_connector=snowflake." in run_script
     assert "REDSHIFT_PASSWORD secret is required when export_connector=redshift." in run_script
     assert (
@@ -331,6 +345,25 @@ def test_model_upgrade_workflow_has_factual_connector_inputs_and_export_wiring()
     assert (
         "EXPORT_MS_TABLE repository variable is required when export_connector=mssql." in run_script
     )
+    assert "ORACLE_PASSWORD secret is required when export_connector=oracle." in run_script
+    assert (
+        "EXPORT_OR_HOST repository variable is required when export_connector=oracle." in run_script
+    )
+    assert (
+        "EXPORT_OR_SERVICE_NAME repository variable is required when export_connector=oracle."
+        in run_script
+    )
+    assert (
+        "EXPORT_OR_USER repository variable is required when export_connector=oracle." in run_script
+    )
+    assert (
+        "EXPORT_OR_SCHEMA repository variable is required when export_connector=oracle."
+        in run_script
+    )
+    assert (
+        "EXPORT_OR_TABLE repository variable is required when export_connector=oracle."
+        in run_script
+    )
     assert 'elif [ "$EXPORT_CONNECTOR" = "gcs" ]; then' in run_script
     assert 'elif [ "$EXPORT_CONNECTOR" = "azure_blob" ]; then' in run_script
     assert 'elif [ "$EXPORT_CONNECTOR" = "bigquery" ]; then' in run_script
@@ -340,11 +373,13 @@ def test_model_upgrade_workflow_has_factual_connector_inputs_and_export_wiring()
     assert 'elif [ "$EXPORT_CONNECTOR" = "postgres" ]; then' in run_script
     assert 'elif [ "$EXPORT_CONNECTOR" = "clickhouse" ]; then' in run_script
     assert 'elif [ "$EXPORT_CONNECTOR" = "mssql" ]; then' in run_script
+    assert 'elif [ "$EXPORT_CONNECTOR" = "oracle" ]; then' in run_script
     assert "REDSHIFT_PASSWORD" in call_secrets
     assert "DATABRICKS_TOKEN" in call_secrets
     assert "POSTGRES_PASSWORD" in call_secrets
     assert "CLICKHOUSE_DSN" in call_secrets
     assert "MSSQL_PASSWORD" in call_secrets
+    assert "ORACLE_PASSWORD" in call_secrets
 
     export_step = next(
         step

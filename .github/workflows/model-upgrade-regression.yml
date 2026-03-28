@@ -81,6 +81,7 @@ on:
           - postgres
           - clickhouse
           - mssql
+          - oracle
       export_connector_endpoint:
         description: "Optional export connector endpoint URL (required for export_connector=http)"
         required: false
@@ -251,6 +252,8 @@ on:
         required: false
       MSSQL_PASSWORD:
         required: false
+      ORACLE_PASSWORD:
+        required: false
 
 permissions:
   contents: read
@@ -329,6 +332,12 @@ jobs:
       EXPORT_MS_USER: ${{ vars.EXPORT_MS_USER }}
       EXPORT_MS_SCHEMA: ${{ vars.EXPORT_MS_SCHEMA }}
       EXPORT_MS_TABLE: ${{ vars.EXPORT_MS_TABLE }}
+      EXPORT_OR_HOST: ${{ vars.EXPORT_OR_HOST }}
+      EXPORT_OR_PORT: ${{ vars.EXPORT_OR_PORT }}
+      EXPORT_OR_SERVICE_NAME: ${{ vars.EXPORT_OR_SERVICE_NAME }}
+      EXPORT_OR_USER: ${{ vars.EXPORT_OR_USER }}
+      EXPORT_OR_SCHEMA: ${{ vars.EXPORT_OR_SCHEMA }}
+      EXPORT_OR_TABLE: ${{ vars.EXPORT_OR_TABLE }}
       AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
       AWS_SESSION_TOKEN: ${{ secrets.AWS_SESSION_TOKEN }}
@@ -338,6 +347,7 @@ jobs:
       LLM_DIFF_EXPORT_PG_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
       LLM_DIFF_EXPORT_CH_DSN: ${{ secrets.CLICKHOUSE_DSN }}
       LLM_DIFF_EXPORT_MS_PASSWORD: ${{ secrets.MSSQL_PASSWORD }}
+      LLM_DIFF_EXPORT_OR_PASSWORD: ${{ secrets.ORACLE_PASSWORD }}
 
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
@@ -662,6 +672,38 @@ jobs:
               connector_args+=(--export-ms-user "$EXPORT_MS_USER")
               connector_args+=(--export-ms-schema "$EXPORT_MS_SCHEMA")
               connector_args+=(--export-ms-table "$EXPORT_MS_TABLE")
+              export_args_ndjson=("${connector_args[@]}")
+            elif [ "$EXPORT_CONNECTOR" = "oracle" ]; then
+              if [ -z "$EXPORT_OR_HOST" ]; then
+                echo "EXPORT_OR_HOST repository variable is required when export_connector=oracle."
+                exit 1
+              fi
+              if [ -z "$EXPORT_OR_SERVICE_NAME" ]; then
+                echo "EXPORT_OR_SERVICE_NAME repository variable is required when export_connector=oracle."
+                exit 1
+              fi
+              if [ -z "$EXPORT_OR_USER" ]; then
+                echo "EXPORT_OR_USER repository variable is required when export_connector=oracle."
+                exit 1
+              fi
+              if [ -z "$LLM_DIFF_EXPORT_OR_PASSWORD" ]; then
+                echo "ORACLE_PASSWORD secret is required when export_connector=oracle."
+                exit 1
+              fi
+              if [ -z "$EXPORT_OR_SCHEMA" ]; then
+                echo "EXPORT_OR_SCHEMA repository variable is required when export_connector=oracle."
+                exit 1
+              fi
+              if [ -z "$EXPORT_OR_TABLE" ]; then
+                echo "EXPORT_OR_TABLE repository variable is required when export_connector=oracle."
+                exit 1
+              fi
+              connector_args+=(--export-or-host "$EXPORT_OR_HOST")
+              connector_args+=(--export-or-port "${EXPORT_OR_PORT:-1521}")
+              connector_args+=(--export-or-service-name "$EXPORT_OR_SERVICE_NAME")
+              connector_args+=(--export-or-user "$EXPORT_OR_USER")
+              connector_args+=(--export-or-schema "$EXPORT_OR_SCHEMA")
+              connector_args+=(--export-or-table "$EXPORT_OR_TABLE")
               export_args_ndjson=("${connector_args[@]}")
             else
               echo "Unsupported export_connector: $EXPORT_CONNECTOR"
