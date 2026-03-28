@@ -236,6 +236,7 @@ def run(
             "postgres",
             "mssql",
             "clickhouse",
+            "oracle",
         ]
     ),
     default="none",
@@ -540,6 +541,43 @@ def run(
     type=str,
     help="ClickHouse table (required when --export-connector clickhouse)",
 )
+@click.option(
+    "--export-or-host",
+    type=str,
+    help="Oracle host (required when --export-connector oracle)",
+)
+@click.option(
+    "--export-or-port",
+    type=int,
+    default=1521,
+    show_default=True,
+    help="Oracle port",
+)
+@click.option(
+    "--export-or-service-name",
+    type=str,
+    help="Oracle service name (required when --export-connector oracle)",
+)
+@click.option(
+    "--export-or-user",
+    type=str,
+    help="Oracle user (required when --export-connector oracle)",
+)
+@click.option(
+    "--export-or-password",
+    type=str,
+    help="Oracle password (optional flag; fallback: LLM_DIFF_EXPORT_OR_PASSWORD)",
+)
+@click.option(
+    "--export-or-schema",
+    type=str,
+    help="Oracle schema (required when --export-connector oracle)",
+)
+@click.option(
+    "--export-or-table",
+    type=str,
+    help="Oracle table (required when --export-connector oracle)",
+)
 def report(
     report_file: str,
     format: str,
@@ -601,6 +639,13 @@ def report(
     export_ch_dsn: Optional[str],
     export_ch_database: Optional[str],
     export_ch_table: Optional[str],
+    export_or_host: Optional[str],
+    export_or_port: int,
+    export_or_service_name: Optional[str],
+    export_or_user: Optional[str],
+    export_or_password: Optional[str],
+    export_or_schema: Optional[str],
+    export_or_table: Optional[str],
 ) -> None:
     """
     Generate behavioral diff report from results.
@@ -704,6 +749,13 @@ def report(
                 ch_dsn=export_ch_dsn,
                 ch_database=export_ch_database,
                 ch_table=export_ch_table,
+                or_host=export_or_host,
+                or_port=export_or_port,
+                or_service_name=export_or_service_name,
+                or_user=export_or_user,
+                or_password=export_or_password,
+                or_schema=export_or_schema,
+                or_table=export_or_table,
             )
             console.print("[green]External export delivered[/green]")
         except Exception as exc:
@@ -1582,6 +1634,13 @@ def _resolve_export_mssql_password(explicit_password: Optional[str]) -> Optional
     return env_password or None
 
 
+def _resolve_export_oracle_password(explicit_password: Optional[str]) -> Optional[str]:
+    if explicit_password and explicit_password.strip():
+        return explicit_password.strip()
+    env_password = os.getenv("LLM_DIFF_EXPORT_OR_PASSWORD", "").strip()
+    return env_password or None
+
+
 def _content_type_for_report_format(report_format: str) -> str:
     mapping = {
         "json": "application/json",
@@ -1796,6 +1855,31 @@ def _create_mssql_connection(
     )
 
 
+def _create_oracle_connection(
+    *,
+    host: str,
+    port: int,
+    service_name: str,
+    user: str,
+    password: str,
+    timeout_seconds: float,
+) -> Any:
+    import oracledb
+
+    dsn = oracledb.makedsn(host, port=port, service_name=service_name)
+    kwargs: dict[str, Any] = {
+        "user": user,
+        "password": password,
+        "dsn": dsn,
+    }
+    try:
+        kwargs["tcp_connect_timeout"] = timeout_seconds
+        return oracledb.connect(**kwargs)
+    except TypeError:
+        kwargs.pop("tcp_connect_timeout", None)
+        return oracledb.connect(**kwargs)
+
+
 def _normalize_databricks_host(host: str) -> str:
     normalized = host.strip()
     if not normalized:
@@ -1877,6 +1961,14 @@ def _quote_mssql_identifier(identifier: str) -> str:
         raise ValueError("MSSQL identifier must not be empty.")
     escaped = normalized.replace("]", "]]")
     return f"[{escaped}]"
+
+
+def _quote_oracle_identifier(identifier: str) -> str:
+    normalized = identifier.strip()
+    if not normalized:
+        raise ValueError("Oracle identifier must not be empty.")
+    escaped = normalized.replace('"', '""')
+    return f'"{escaped}"'
 
 
 def _build_bigquery_rows_from_ndjson(content: str) -> list[dict[str, Any]]:
@@ -2050,7 +2142,15 @@ def _is_transient_export_error(connector: str, exc: Exception) -> bool:
         if class_name == "HttpResponseError" and status_code in _TRANSIENT_HTTP_STATUS_CODES:
             return True
 
-    if connector in {"snowflake", "redshift", "databricks", "postgres", "clickhouse", "mssql"}:
+    if connector in {
+        "snowflake",
+        "redshift",
+        "databricks",
+        "postgres",
+        "clickhouse",
+        "mssql",
+        "oracle",
+    }:
         if _is_auth_or_permission_message(message):
             return False
         if _is_likely_transient_message(message):
@@ -2156,6 +2256,13 @@ def _dispatch_report_export(
     ch_dsn: Optional[str],
     ch_database: Optional[str],
     ch_table: Optional[str],
+    or_host: Optional[str],
+    or_port: int,
+    or_service_name: Optional[str],
+    or_user: Optional[str],
+    or_password: Optional[str],
+    or_schema: Optional[str],
+    or_table: Optional[str],
 ) -> None:
     if timeout_seconds <= 0:
         raise ValueError("export_timeout must be > 0")
@@ -2712,9 +2819,74 @@ def _dispatch_report_export(
         )
         return
 
+    if normalized == "oracle":
+        if report_format != "ndjson":
+            raise ValueError("export_connector 'oracle' supports only --format ndjson.")
+        if not or_host or not or_host.strip():
+            raise ValueError("export_or_host is required when export_connector is 'oracle'.")
+        if or_port <= 0:
+            raise ValueError("export_or_port must be > 0 when export_connector is 'oracle'.")
+        if not or_service_name or not or_service_name.strip():
+            raise ValueError(
+                "export_or_service_name is required when export_connector is 'oracle'."
+            )
+        if not or_user or not or_user.strip():
+            raise ValueError("export_or_user is required when export_connector is 'oracle'.")
+        resolved_or_password = _resolve_export_oracle_password(or_password)
+        if not resolved_or_password:
+            raise ValueError(
+                "Oracle password is required via --export-or-password or "
+                "LLM_DIFF_EXPORT_OR_PASSWORD."
+            )
+        if not or_schema or not or_schema.strip():
+            raise ValueError("export_or_schema is required when export_connector is 'oracle'.")
+        if not or_table or not or_table.strip():
+            raise ValueError("export_or_table is required when export_connector is 'oracle'.")
+
+        rows = _build_bigquery_rows_from_ndjson(content)
+        if not rows:
+            return
+
+        columns = list(rows[0].keys())
+        quoted_table = ".".join(
+            [
+                _quote_oracle_identifier(or_schema),
+                _quote_oracle_identifier(or_table),
+            ]
+        )
+        quoted_columns = ", ".join(_quote_oracle_identifier(column) for column in columns)
+        placeholders = ", ".join(f":{index}" for index in range(1, len(columns) + 1))
+        query = f"INSERT INTO {quoted_table} ({quoted_columns}) VALUES ({placeholders})"
+        values_rows = [tuple(row[column] for column in columns) for row in rows]
+
+        def _insert_oracle_rows() -> None:
+            connection = _create_oracle_connection(
+                host=or_host.strip(),
+                port=or_port,
+                service_name=or_service_name.strip(),
+                user=or_user.strip(),
+                password=resolved_or_password,
+                timeout_seconds=timeout_seconds,
+            )
+            cursor = connection.cursor()
+            try:
+                cursor.executemany(query, values_rows)
+                connection.commit()
+            finally:
+                cursor.close()
+                connection.close()
+
+        _run_export_operation_with_retry(
+            connector=normalized,
+            operation="executemany",
+            execute=_insert_oracle_rows,
+        )
+        return
+
     raise ValueError(
         f"Unsupported export connector '{connector}'. Supported: none, http, s3, gcs, "
-        "bigquery, snowflake, redshift, azure_blob, databricks, postgres, clickhouse, mssql."
+        "bigquery, snowflake, redshift, azure_blob, databricks, postgres, clickhouse, "
+        "mssql, oracle."
     )
 
 
