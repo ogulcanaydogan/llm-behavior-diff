@@ -127,6 +127,10 @@ The `git diff` for LLM behavior. When you upgrade a model version, know exactly 
 - [x] Benchmark summary extended with suite-level effect size/FDR metadata and advisory signal
 - [x] Metadata/output-only contract preserved (no gate semantic override)
 
+## Phase 15: Export Connector Reliability Hardening (Completed)
+- [x] Reliability V1: transient retry wrapper + attempt-context failure diagnostics (fail-fast preserved)
+- [x] Reliability V2: internal connector registry + shared validation/execution flow + contract matrix tests
+
 ## Current Status
 No open committed roadmap items at this time. GA baseline is `v1.0.0`; future exploration is tracked as non-committed candidates and promoted into new phases only when prioritized.
 

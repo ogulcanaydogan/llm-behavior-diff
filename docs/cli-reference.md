@@ -246,6 +246,7 @@ Export format behavior:
 - `clickhouse` dispatch requires `--format ndjson` and fails fast on insert errors.
 - `mssql` dispatch requires `--format ndjson` and fails fast on insert errors.
 - `oracle` dispatch requires `--format ndjson` and fails fast on insert errors.
+- Connector dispatch runs through one shared internal reliability path (connector registry + validation + payload prep + retry execution), preserving fail-fast final behavior and connector-specific error context.
 
 ## `llm-diff compare`
 

@@ -217,7 +217,7 @@ Artifacts:
   - `benchmark.md` (human-readable advisory summary appended to job summary)
 - Benchmark output is advisory-only and does not override gate pass/fail.
 - Benchmark summaries include extended significance signals (effect size + BH-FDR) when run-level significance metadata is available.
-- Direct export dispatch applies transient retry (`max_attempts=3`, backoff `0.5s`, `1.0s` + bounded jitter) for network/service failures; validation/auth errors are not retried.
+- Direct export dispatch applies transient retry (`max_attempts=3`, backoff `0.5s`, `1.0s` + bounded jitter) for network/service failures; validation/auth errors are not retried. Internally, all connectors use one shared registry-driven execution pipeline, and failure text includes connector/operation/attempt context.
 - When `export_connector=http` is enabled, each generated export is also posted
   to the configured endpoint (`export_connector_endpoint`) via report command dispatch.
 - When `export_connector=s3` is enabled, each generated export is also uploaded to

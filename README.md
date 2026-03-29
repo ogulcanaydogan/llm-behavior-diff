@@ -47,6 +47,7 @@ Ad-hoc prompt checks miss these patterns and are hard to reproduce in CI.
 - JSON report artifacts for CI and governance workflows
 - Report rendering in `table`, `json`, `markdown`, `csv`, `ndjson`, `junit`, and interactive self-contained `html`
 - Optional direct export connectors for rendered reports (`--export-connector http|s3|gcs|bigquery|snowflake|redshift|azure_blob|databricks|postgres|clickhouse|mssql|oracle`)
+- Reliability-hardened export execution (connector registry + shared validation/NDJSON normalization + transient retry with fail-fast final outcome)
 - Run-to-run compare command with delta metrics + bootstrap CI + permutation p-value + effect size + FDR
 - Policy gate command for deterministic release decisions (`strict|balanced|permissive`)
 - Advisory benchmark command for report artifacts (`llm-diff benchmark`) with extended significance summary
