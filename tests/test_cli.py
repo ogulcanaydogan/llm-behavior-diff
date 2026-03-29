@@ -9,6 +9,7 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 
 import httpx
+import pytest
 from click.testing import CliRunner
 
 import llm_behavior_diff.cli as cli_module
@@ -1064,6 +1065,135 @@ def test_export_retry_wrapper_non_transient_failure_is_immediate_for_all_connect
 
         assert attempts["count"] == 1
         assert backoffs == []
+
+
+@pytest.mark.parametrize(
+    ("connector", "format_contract"),
+    [
+        ("http", "all_non_table"),
+        ("s3", "all_non_table"),
+        ("gcs", "all_non_table"),
+        ("azure_blob", "all_non_table"),
+        ("bigquery", "ndjson_only"),
+        ("snowflake", "ndjson_only"),
+        ("redshift", "ndjson_only"),
+        ("databricks", "ndjson_only"),
+        ("postgres", "ndjson_only"),
+        ("clickhouse", "ndjson_only"),
+        ("mssql", "ndjson_only"),
+        ("oracle", "ndjson_only"),
+    ],
+)
+def test_export_connector_registry_format_contract_matrix(
+    connector: str,
+    format_contract: str,
+) -> None:
+    spec = cli_module._EXPORT_CONNECTOR_REGISTRY[connector]
+    assert spec.format_contract == format_contract
+
+
+@pytest.mark.parametrize(
+    ("connector", "report_format", "expected_error"),
+    [
+        ("http", "csv", "export_endpoint is required"),
+        ("s3", "csv", "export_s3_bucket is required"),
+        ("gcs", "csv", "export_gcs_bucket is required"),
+        ("azure_blob", "csv", "export_az_account_url is required"),
+        ("bigquery", "ndjson", "export_bq_project is required"),
+        ("snowflake", "ndjson", "export_sf_account is required"),
+        ("redshift", "ndjson", "export_rs_host is required"),
+        ("databricks", "ndjson", "export_dbx_host is required"),
+        ("postgres", "ndjson", "export_pg_host is required"),
+        ("clickhouse", "ndjson", "ClickHouse DSN is required"),
+        ("mssql", "ndjson", "export_ms_host is required"),
+        ("oracle", "ndjson", "export_or_host is required"),
+    ],
+)
+def test_report_export_connector_required_field_matrix(
+    tmp_path: Path,
+    connector: str,
+    report_format: str,
+    expected_error: str,
+) -> None:
+    report_path = tmp_path / f"required_matrix_{connector}.json"
+    output_path = tmp_path / f"required_matrix_{connector}.{report_format}"
+    report = BehaviorReport(
+        model_a="gpt-4o",
+        model_b="gpt-4.5",
+        suite_name=f"suite_required_{connector}",
+        total_tests=0,
+        total_diffs=0,
+        regressions=0,
+        improvements=0,
+        duration_seconds=0.0,
+    )
+    report_path.write_text(json.dumps(report.model_dump(mode="json"), indent=2), encoding="utf-8")
+
+    result = CliRunner().invoke(
+        main,
+        [
+            "report",
+            str(report_path),
+            "--format",
+            report_format,
+            "--output",
+            str(output_path),
+            "--export-connector",
+            connector,
+        ],
+    )
+
+    assert result.exit_code == 1
+    assert expected_error in result.output
+
+
+@pytest.mark.parametrize(
+    "connector",
+    [
+        "bigquery",
+        "snowflake",
+        "redshift",
+        "databricks",
+        "postgres",
+        "clickhouse",
+        "mssql",
+        "oracle",
+    ],
+)
+def test_report_export_connector_ndjson_only_contract_matrix_rejects_csv(
+    tmp_path: Path,
+    connector: str,
+) -> None:
+    report_path = tmp_path / f"format_contract_{connector}.json"
+    csv_path = tmp_path / f"format_contract_{connector}.csv"
+    report = BehaviorReport(
+        model_a="gpt-4o",
+        model_b="gpt-4.5",
+        suite_name=f"suite_contract_{connector}",
+        total_tests=0,
+        total_diffs=0,
+        regressions=0,
+        improvements=0,
+        duration_seconds=0.0,
+    )
+    report_path.write_text(json.dumps(report.model_dump(mode="json"), indent=2), encoding="utf-8")
+
+    result = CliRunner().invoke(
+        main,
+        [
+            "report",
+            str(report_path),
+            "--format",
+            "csv",
+            "--output",
+            str(csv_path),
+            "--export-connector",
+            connector,
+        ],
+    )
+
+    assert result.exit_code == 1
+    assert "supports only --format ndjson" in result.output
 
 
 def test_report_http_export_connector_success(tmp_path: Path, monkeypatch) -> None:
