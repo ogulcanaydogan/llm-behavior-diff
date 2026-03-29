@@ -56,5 +56,6 @@ llm-diff benchmark report.json --format table
 - Bootstrap + Wilson statistical intervals are implemented in run metadata.
 - Compare output includes bootstrap delta CI + permutation p-value + effect size + BH-FDR.
 - Benchmark output includes advisory-only extended significance summaries when report metadata is available.
+- Export connectors use a shared retry-aware reliability pipeline (internal hardening, fail-fast preserved).
 - Launch kit content tracks current implementation state (not historical snapshots).
 - No open committed roadmap items currently; future items are tracked as new phases.

@@ -12,9 +12,10 @@ import json
 import os
 import time
 import xml.etree.ElementTree as ET
+from dataclasses import dataclass
 from html import escape as html_escape
 from pathlib import Path
-from typing import Any, Callable, Optional
+from typing import Any, Callable, Literal, Optional
 from urllib.parse import urlparse
 
 import click
@@ -1971,6 +1972,91 @@ def _quote_oracle_identifier(identifier: str) -> str:
     return f'"{escaped}"'
 
 
+_ExportFormatContract = Literal["all_non_table", "ndjson_only"]
+
+
+@dataclass(frozen=True)
+class _ExportPreparedOperation:
+    operation: str
+    execute: Callable[[], None]
+
+
+@dataclass(frozen=True)
+class _ExportDispatchContext:
+    report: BehaviorReport
+    report_format: str
+    content: str
+    timeout_seconds: float
+    endpoint: Optional[str]
+    api_key: Optional[str]
+    s3_bucket: Optional[str]
+    s3_prefix: str
+    s3_region: Optional[str]
+    gcs_bucket: Optional[str]
+    gcs_prefix: str
+    gcs_project: Optional[str]
+    az_account_url: Optional[str]
+    az_container: Optional[str]
+    az_prefix: str
+    bq_project: Optional[str]
+    bq_dataset: Optional[str]
+    bq_table: Optional[str]
+    bq_location: Optional[str]
+    sf_account: Optional[str]
+    sf_user: Optional[str]
+    sf_password: Optional[str]
+    sf_role: Optional[str]
+    sf_warehouse: Optional[str]
+    sf_database: Optional[str]
+    sf_schema: Optional[str]
+    sf_table: Optional[str]
+    rs_host: Optional[str]
+    rs_port: int
+    rs_database: Optional[str]
+    rs_user: Optional[str]
+    rs_password: Optional[str]
+    rs_schema: Optional[str]
+    rs_table: Optional[str]
+    rs_sslmode: str
+    dbx_host: Optional[str]
+    dbx_http_path: Optional[str]
+    dbx_token: Optional[str]
+    dbx_catalog: Optional[str]
+    dbx_schema: Optional[str]
+    dbx_table: Optional[str]
+    pg_host: Optional[str]
+    pg_port: int
+    pg_database: Optional[str]
+    pg_user: Optional[str]
+    pg_password: Optional[str]
+    pg_schema: Optional[str]
+    pg_table: Optional[str]
+    pg_sslmode: str
+    ms_host: Optional[str]
+    ms_port: int
+    ms_database: Optional[str]
+    ms_user: Optional[str]
+    ms_password: Optional[str]
+    ms_schema: Optional[str]
+    ms_table: Optional[str]
+    ch_dsn: Optional[str]
+    ch_database: Optional[str]
+    ch_table: Optional[str]
+    or_host: Optional[str]
+    or_port: int
+    or_service_name: Optional[str]
+    or_user: Optional[str]
+    or_password: Optional[str]
+    or_schema: Optional[str]
+    or_table: Optional[str]
+
+
+@dataclass(frozen=True)
+class _ExportConnectorSpec:
+    format_contract: _ExportFormatContract
+    prepare_operation: Callable[["_ExportDispatchContext"], Optional[_ExportPreparedOperation]]
+
+
 def _build_bigquery_rows_from_ndjson(content: str) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     for line_number, line in enumerate(content.splitlines(), start=1):
@@ -2056,6 +2142,16 @@ _TRANSIENT_MESSAGE_KEYWORDS = (
     "bad gateway",
     "gateway timeout",
 )
+_GOOGLE_EXPORT_CONNECTORS = {"bigquery", "gcs"}
+_SQL_WAREHOUSE_EXPORT_CONNECTORS = {
+    "snowflake",
+    "redshift",
+    "databricks",
+    "postgres",
+    "clickhouse",
+    "mssql",
+    "oracle",
+}
 
 
 def _extract_http_status_code(exc: Exception) -> Optional[int]:
@@ -2125,7 +2221,7 @@ def _is_transient_export_error(connector: str, exc: Exception) -> bool:
             if status_code in _TRANSIENT_HTTP_STATUS_CODES:
                 return True
 
-    if connector in {"bigquery", "gcs"} and module_name.startswith("google.api_core"):
+    if connector in _GOOGLE_EXPORT_CONNECTORS and module_name.startswith("google.api_core"):
         if class_name in {
             "DeadlineExceeded",
             "ServiceUnavailable",
@@ -2142,15 +2238,7 @@ def _is_transient_export_error(connector: str, exc: Exception) -> bool:
         if class_name == "HttpResponseError" and status_code in _TRANSIENT_HTTP_STATUS_CODES:
             return True
 
-    if connector in {
-        "snowflake",
-        "redshift",
-        "databricks",
-        "postgres",
-        "clickhouse",
-        "mssql",
-        "oracle",
-    }:
+    if connector in _SQL_WAREHOUSE_EXPORT_CONNECTORS:
         if _is_auth_or_permission_message(message):
             return False
         if _is_likely_transient_message(message):
@@ -2193,6 +2281,707 @@ def _run_export_operation_with_retry(
                 ) from exc
             backoff_seconds = _compute_export_retry_backoff_seconds(attempt)
             _sleep_export_retry(backoff_seconds)
+
+
+def _require_export_string(value: Optional[str], error_message: str) -> str:
+    if value is None or not value.strip():
+        raise ValueError(error_message)
+    return value.strip()
+
+
+def _require_positive_export_int(value: int, error_message: str) -> int:
+    if value <= 0:
+        raise ValueError(error_message)
+    return value
+
+
+def _prepare_ndjson_rows_from_context(
+    ctx: _ExportDispatchContext, connector: str
+) -> list[dict[str, Any]]:
+    if ctx.report_format != "ndjson":
+        raise ValueError(f"export_connector '{connector}' supports only --format ndjson.")
+    return _build_bigquery_rows_from_ndjson(ctx.content)
+
+
+def _build_named_parameter_insert_query(
+    *,
+    table_parts: list[str],
+    columns: list[str],
+    quote_identifier: Callable[[str], str],
+) -> str:
+    quoted_table = ".".join(quote_identifier(part) for part in table_parts)
+    quoted_columns = ", ".join(quote_identifier(column) for column in columns)
+    placeholders = ", ".join(f"%({column})s" for column in columns)
+    return f"INSERT INTO {quoted_table} ({quoted_columns}) VALUES ({placeholders})"
+
+
+def _build_positional_insert_query(
+    *,
+    table_parts: list[str],
+    columns: list[str],
+    quote_identifier: Callable[[str], str],
+    placeholder_tokens: list[str],
+) -> str:
+    quoted_table = ".".join(quote_identifier(part) for part in table_parts)
+    quoted_columns = ", ".join(quote_identifier(column) for column in columns)
+    placeholders = ", ".join(placeholder_tokens)
+    return f"INSERT INTO {quoted_table} ({quoted_columns}) VALUES ({placeholders})"
+
+
+def _prepare_http_export_operation(ctx: _ExportDispatchContext) -> _ExportPreparedOperation:
+    endpoint = _require_export_string(
+        ctx.endpoint,
+        "export_endpoint is required when export_connector is 'http'.",
+    )
+    headers = {
+        "Content-Type": "application/json",
+        "User-Agent": "llm-behavior-diff/0.1 report-export",
+    }
+    resolved_api_key = _resolve_export_api_key(ctx.api_key)
+    if resolved_api_key:
+        headers["Authorization"] = f"Bearer {resolved_api_key}"
+
+    payload = {
+        "event": "llm_behavior_diff_report_export",
+        "report": {
+            "id": ctx.report.id,
+            "suite_name": ctx.report.suite_name,
+            "model_a": ctx.report.model_a,
+            "model_b": ctx.report.model_b,
+            "total_tests": ctx.report.total_tests,
+            "total_diffs": ctx.report.total_diffs,
+            "regressions": ctx.report.regressions,
+            "improvements": ctx.report.improvements,
+        },
+        "export": {
+            "format": ctx.report_format,
+            "content_type": _content_type_for_report_format(ctx.report_format),
+            "content": ctx.content,
+        },
+    }
+
+    def _send_http_request() -> None:
+        response = httpx.post(
+            endpoint,
+            json=payload,
+            headers=headers,
+            timeout=ctx.timeout_seconds,
+        )
+        response.raise_for_status()
+
+    return _ExportPreparedOperation(operation="post", execute=_send_http_request)
+
+
+def _prepare_s3_export_operation(ctx: _ExportDispatchContext) -> _ExportPreparedOperation:
+    bucket = _require_export_string(
+        ctx.s3_bucket,
+        "export_s3_bucket is required when export_connector is 's3'.",
+    )
+    object_key = _build_s3_object_key(
+        prefix=ctx.s3_prefix,
+        suite_name=ctx.report.suite_name,
+        report_id=str(ctx.report.id),
+        report_format=ctx.report_format,
+    )
+
+    def _put_s3_object() -> None:
+        client = _create_s3_client(region=ctx.s3_region, timeout_seconds=ctx.timeout_seconds)
+        client.put_object(
+            Bucket=bucket,
+            Key=object_key,
+            Body=ctx.content.encode("utf-8"),
+            ContentType=_content_type_for_report_format(ctx.report_format),
+        )
+
+    return _ExportPreparedOperation(operation="put_object", execute=_put_s3_object)
+
+
+def _prepare_gcs_export_operation(ctx: _ExportDispatchContext) -> _ExportPreparedOperation:
+    bucket_name = _require_export_string(
+        ctx.gcs_bucket,
+        "export_gcs_bucket is required when export_connector is 'gcs'.",
+    )
+    object_key = _build_gcs_object_key(
+        prefix=ctx.gcs_prefix,
+        suite_name=ctx.report.suite_name,
+        report_id=str(ctx.report.id),
+        report_format=ctx.report_format,
+    )
+
+    def _upload_gcs_blob() -> None:
+        client = _create_gcs_client(project=ctx.gcs_project, timeout_seconds=ctx.timeout_seconds)
+        bucket = client.bucket(bucket_name)
+        blob = bucket.blob(object_key)
+        blob.upload_from_string(
+            ctx.content,
+            content_type=_content_type_for_report_format(ctx.report_format),
+            timeout=ctx.timeout_seconds,
+        )
+
+    return _ExportPreparedOperation(operation="upload_from_string", execute=_upload_gcs_blob)
+
+
+def _prepare_azure_blob_export_operation(ctx: _ExportDispatchContext) -> _ExportPreparedOperation:
+    account_url = _require_export_string(
+        ctx.az_account_url,
+        "export_az_account_url is required when export_connector is 'azure_blob'.",
+    )
+    container = _require_export_string(
+        ctx.az_container,
+        "export_az_container is required when export_connector is 'azure_blob'.",
+    )
+    object_key = _build_azure_blob_object_key(
+        prefix=ctx.az_prefix,
+        suite_name=ctx.report.suite_name,
+        report_id=str(ctx.report.id),
+        report_format=ctx.report_format,
+    )
+
+    def _upload_azure_blob() -> None:
+        service_client = _create_azure_blob_service_client(
+            account_url=account_url,
+            timeout_seconds=ctx.timeout_seconds,
+        )
+        blob_client = service_client.get_blob_client(
+            container=container,
+            blob=object_key,
+        )
+        blob_client.upload_blob(
+            ctx.content.encode("utf-8"),
+            overwrite=True,
+            content_type=_content_type_for_report_format(ctx.report_format),
+            timeout=ctx.timeout_seconds,
+        )
+
+    return _ExportPreparedOperation(operation="upload_blob", execute=_upload_azure_blob)
+
+
+def _prepare_bigquery_export_operation(
+    ctx: _ExportDispatchContext,
+) -> Optional[_ExportPreparedOperation]:
+    project = _require_export_string(
+        ctx.bq_project,
+        "export_bq_project is required when export_connector is 'bigquery'.",
+    )
+    dataset = _require_export_string(
+        ctx.bq_dataset,
+        "export_bq_dataset is required when export_connector is 'bigquery'.",
+    )
+    table = _require_export_string(
+        ctx.bq_table,
+        "export_bq_table is required when export_connector is 'bigquery'.",
+    )
+    rows = _prepare_ndjson_rows_from_context(ctx, "bigquery")
+    if not rows:
+        return None
+
+    table_id = f"{project}.{dataset}.{table}"
+
+    def _insert_bigquery_rows() -> None:
+        client = _create_bigquery_client(project=project, location=ctx.bq_location)
+        errors = client.insert_rows_json(table_id, rows, timeout=ctx.timeout_seconds)
+        if errors:
+            raise RuntimeError(f"BigQuery insert failed for table '{table_id}': {errors}")
+
+    return _ExportPreparedOperation(operation="insert_rows_json", execute=_insert_bigquery_rows)
+
+
+def _prepare_snowflake_export_operation(
+    ctx: _ExportDispatchContext,
+) -> Optional[_ExportPreparedOperation]:
+    account = _require_export_string(
+        ctx.sf_account,
+        "export_sf_account is required when export_connector is 'snowflake'.",
+    )
+    user = _require_export_string(
+        ctx.sf_user,
+        "export_sf_user is required when export_connector is 'snowflake'.",
+    )
+    resolved_password = _resolve_export_snowflake_password(ctx.sf_password)
+    if not resolved_password:
+        raise ValueError(
+            "Snowflake password is required via --export-sf-password or "
+            "LLM_DIFF_EXPORT_SF_PASSWORD."
+        )
+    warehouse = _require_export_string(
+        ctx.sf_warehouse,
+        "export_sf_warehouse is required when export_connector is 'snowflake'.",
+    )
+    database = _require_export_string(
+        ctx.sf_database,
+        "export_sf_database is required when export_connector is 'snowflake'.",
+    )
+    schema = _require_export_string(
+        ctx.sf_schema,
+        "export_sf_schema is required when export_connector is 'snowflake'.",
+    )
+    table = _require_export_string(
+        ctx.sf_table,
+        "export_sf_table is required when export_connector is 'snowflake'.",
+    )
+    rows = _prepare_ndjson_rows_from_context(ctx, "snowflake")
+    if not rows:
+        return None
+
+    columns = list(rows[0].keys())
+    query = _build_named_parameter_insert_query(
+        table_parts=[database, schema, table],
+        columns=columns,
+        quote_identifier=_quote_snowflake_identifier,
+    )
+
+    def _insert_snowflake_rows() -> None:
+        connection = _create_snowflake_connection(
+            account=account,
+            user=user,
+            password=resolved_password,
+            warehouse=warehouse,
+            database=database,
+            schema=schema,
+            role=ctx.sf_role,
+            timeout_seconds=ctx.timeout_seconds,
+        )
+        cursor = connection.cursor()
+        try:
+            cursor.executemany(query, rows)
+            connection.commit()
+        finally:
+            cursor.close()
+            connection.close()
+
+    return _ExportPreparedOperation(operation="executemany", execute=_insert_snowflake_rows)
+
+
+def _prepare_redshift_export_operation(
+    ctx: _ExportDispatchContext,
+) -> Optional[_ExportPreparedOperation]:
+    host = _require_export_string(
+        ctx.rs_host,
+        "export_rs_host is required when export_connector is 'redshift'.",
+    )
+    port = _require_positive_export_int(
+        ctx.rs_port,
+        "export_rs_port must be > 0 when export_connector is 'redshift'.",
+    )
+    database = _require_export_string(
+        ctx.rs_database,
+        "export_rs_database is required when export_connector is 'redshift'.",
+    )
+    user = _require_export_string(
+        ctx.rs_user,
+        "export_rs_user is required when export_connector is 'redshift'.",
+    )
+    resolved_password = _resolve_export_redshift_password(ctx.rs_password)
+    if not resolved_password:
+        raise ValueError(
+            "Redshift password is required via --export-rs-password or "
+            "LLM_DIFF_EXPORT_RS_PASSWORD."
+        )
+    schema = _require_export_string(
+        ctx.rs_schema,
+        "export_rs_schema is required when export_connector is 'redshift'.",
+    )
+    table = _require_export_string(
+        ctx.rs_table,
+        "export_rs_table is required when export_connector is 'redshift'.",
+    )
+    sslmode = _require_export_string(
+        ctx.rs_sslmode,
+        "export_rs_sslmode must not be empty when export_connector is 'redshift'.",
+    )
+    rows = _prepare_ndjson_rows_from_context(ctx, "redshift")
+    if not rows:
+        return None
+
+    columns = list(rows[0].keys())
+    query = _build_named_parameter_insert_query(
+        table_parts=[schema, table],
+        columns=columns,
+        quote_identifier=_quote_redshift_identifier,
+    )
+
+    def _insert_redshift_rows() -> None:
+        connection = _create_redshift_connection(
+            host=host,
+            port=port,
+            database=database,
+            user=user,
+            password=resolved_password,
+            sslmode=sslmode,
+            timeout_seconds=ctx.timeout_seconds,
+        )
+        cursor = connection.cursor()
+        try:
+            cursor.executemany(query, rows)
+            connection.commit()
+        finally:
+            cursor.close()
+            connection.close()
+
+    return _ExportPreparedOperation(operation="executemany", execute=_insert_redshift_rows)
+
+
+def _prepare_databricks_export_operation(
+    ctx: _ExportDispatchContext,
+) -> Optional[_ExportPreparedOperation]:
+    host = _require_export_string(
+        ctx.dbx_host,
+        "export_dbx_host is required when export_connector is 'databricks'.",
+    )
+    http_path = _require_export_string(
+        ctx.dbx_http_path,
+        "export_dbx_http_path is required when export_connector is 'databricks'.",
+    )
+    resolved_token = _resolve_export_databricks_token(ctx.dbx_token)
+    if not resolved_token:
+        raise ValueError(
+            "Databricks token is required via --export-dbx-token or " "LLM_DIFF_EXPORT_DBX_TOKEN."
+        )
+    catalog = _require_export_string(
+        ctx.dbx_catalog,
+        "export_dbx_catalog is required when export_connector is 'databricks'.",
+    )
+    schema = _require_export_string(
+        ctx.dbx_schema,
+        "export_dbx_schema is required when export_connector is 'databricks'.",
+    )
+    table = _require_export_string(
+        ctx.dbx_table,
+        "export_dbx_table is required when export_connector is 'databricks'.",
+    )
+    rows = _prepare_ndjson_rows_from_context(ctx, "databricks")
+    if not rows:
+        return None
+
+    columns = list(rows[0].keys())
+    query = _build_named_parameter_insert_query(
+        table_parts=[catalog, schema, table],
+        columns=columns,
+        quote_identifier=_quote_databricks_identifier,
+    )
+
+    def _insert_databricks_rows() -> None:
+        connection = _create_databricks_connection(
+            host=host,
+            http_path=http_path,
+            token=resolved_token,
+            timeout_seconds=ctx.timeout_seconds,
+        )
+        cursor = connection.cursor()
+        try:
+            cursor.executemany(query, rows)
+            connection.commit()
+        finally:
+            cursor.close()
+            connection.close()
+
+    return _ExportPreparedOperation(operation="executemany", execute=_insert_databricks_rows)
+
+
+def _prepare_postgres_export_operation(
+    ctx: _ExportDispatchContext,
+) -> Optional[_ExportPreparedOperation]:
+    host = _require_export_string(
+        ctx.pg_host,
+        "export_pg_host is required when export_connector is 'postgres'.",
+    )
+    port = _require_positive_export_int(
+        ctx.pg_port,
+        "export_pg_port must be > 0 when export_connector is 'postgres'.",
+    )
+    database = _require_export_string(
+        ctx.pg_database,
+        "export_pg_database is required when export_connector is 'postgres'.",
+    )
+    user = _require_export_string(
+        ctx.pg_user,
+        "export_pg_user is required when export_connector is 'postgres'.",
+    )
+    resolved_password = _resolve_export_postgres_password(ctx.pg_password)
+    if not resolved_password:
+        raise ValueError(
+            "PostgreSQL password is required via --export-pg-password or "
+            "LLM_DIFF_EXPORT_PG_PASSWORD."
+        )
+    schema = _require_export_string(
+        ctx.pg_schema,
+        "export_pg_schema is required when export_connector is 'postgres'.",
+    )
+    table = _require_export_string(
+        ctx.pg_table,
+        "export_pg_table is required when export_connector is 'postgres'.",
+    )
+    sslmode = _require_export_string(
+        ctx.pg_sslmode,
+        "export_pg_sslmode must not be empty when export_connector is 'postgres'.",
+    )
+    rows = _prepare_ndjson_rows_from_context(ctx, "postgres")
+    if not rows:
+        return None
+
+    columns = list(rows[0].keys())
+    query = _build_named_parameter_insert_query(
+        table_parts=[schema, table],
+        columns=columns,
+        quote_identifier=_quote_postgres_identifier,
+    )
+
+    def _insert_postgres_rows() -> None:
+        connection = _create_postgres_connection(
+            host=host,
+            port=port,
+            database=database,
+            user=user,
+            password=resolved_password,
+            sslmode=sslmode,
+            timeout_seconds=ctx.timeout_seconds,
+        )
+        cursor = connection.cursor()
+        try:
+            cursor.executemany(query, rows)
+            connection.commit()
+        finally:
+            cursor.close()
+            connection.close()
+
+    return _ExportPreparedOperation(operation="executemany", execute=_insert_postgres_rows)
+
+
+def _prepare_clickhouse_export_operation(
+    ctx: _ExportDispatchContext,
+) -> Optional[_ExportPreparedOperation]:
+    resolved_dsn = _resolve_export_clickhouse_dsn(ctx.ch_dsn)
+    if not resolved_dsn:
+        raise ValueError(
+            "ClickHouse DSN is required via --export-ch-dsn or LLM_DIFF_EXPORT_CH_DSN."
+        )
+    database = _require_export_string(
+        ctx.ch_database,
+        "export_ch_database is required when export_connector is 'clickhouse'.",
+    )
+    table = _require_export_string(
+        ctx.ch_table,
+        "export_ch_table is required when export_connector is 'clickhouse'.",
+    )
+    rows = _prepare_ndjson_rows_from_context(ctx, "clickhouse")
+    if not rows:
+        return None
+
+    columns = list(rows[0].keys())
+    quoted_table = ".".join(
+        [_quote_clickhouse_identifier(database), _quote_clickhouse_identifier(table)]
+    )
+    quoted_columns = ", ".join(_quote_clickhouse_identifier(column) for column in columns)
+    value_rows = [tuple(row[column] for column in columns) for row in rows]
+    query = f"INSERT INTO {quoted_table} ({quoted_columns}) VALUES"
+
+    def _insert_clickhouse_rows() -> None:
+        client = _create_clickhouse_client(dsn=resolved_dsn, timeout_seconds=ctx.timeout_seconds)
+        try:
+            client.execute(query, value_rows)
+        finally:
+            disconnect_connection = getattr(client, "disconnect_connection", None)
+            if callable(disconnect_connection):
+                disconnect_connection()
+            else:
+                disconnect = getattr(client, "disconnect", None)
+                if callable(disconnect):
+                    disconnect()
+
+    return _ExportPreparedOperation(operation="executemany", execute=_insert_clickhouse_rows)
+
+
+def _prepare_mssql_export_operation(
+    ctx: _ExportDispatchContext,
+) -> Optional[_ExportPreparedOperation]:
+    host = _require_export_string(
+        ctx.ms_host,
+        "export_ms_host is required when export_connector is 'mssql'.",
+    )
+    port = _require_positive_export_int(
+        ctx.ms_port,
+        "export_ms_port must be > 0 when export_connector is 'mssql'.",
+    )
+    database = _require_export_string(
+        ctx.ms_database,
+        "export_ms_database is required when export_connector is 'mssql'.",
+    )
+    user = _require_export_string(
+        ctx.ms_user,
+        "export_ms_user is required when export_connector is 'mssql'.",
+    )
+    resolved_password = _resolve_export_mssql_password(ctx.ms_password)
+    if not resolved_password:
+        raise ValueError(
+            "MSSQL password is required via --export-ms-password or " "LLM_DIFF_EXPORT_MS_PASSWORD."
+        )
+    schema = _require_export_string(
+        ctx.ms_schema,
+        "export_ms_schema is required when export_connector is 'mssql'.",
+    )
+    table = _require_export_string(
+        ctx.ms_table,
+        "export_ms_table is required when export_connector is 'mssql'.",
+    )
+    rows = _prepare_ndjson_rows_from_context(ctx, "mssql")
+    if not rows:
+        return None
+
+    columns = list(rows[0].keys())
+    query = _build_positional_insert_query(
+        table_parts=[schema, table],
+        columns=columns,
+        quote_identifier=_quote_mssql_identifier,
+        placeholder_tokens=["%s"] * len(columns),
+    )
+    values_rows = [tuple(row[column] for column in columns) for row in rows]
+
+    def _insert_mssql_rows() -> None:
+        connection = _create_mssql_connection(
+            host=host,
+            port=port,
+            database=database,
+            user=user,
+            password=resolved_password,
+            timeout_seconds=ctx.timeout_seconds,
+        )
+        cursor = connection.cursor()
+        try:
+            cursor.executemany(query, values_rows)
+            connection.commit()
+        finally:
+            cursor.close()
+            connection.close()
+
+    return _ExportPreparedOperation(operation="executemany", execute=_insert_mssql_rows)
+
+
+def _prepare_oracle_export_operation(
+    ctx: _ExportDispatchContext,
+) -> Optional[_ExportPreparedOperation]:
+    host = _require_export_string(
+        ctx.or_host,
+        "export_or_host is required when export_connector is 'oracle'.",
+    )
+    port = _require_positive_export_int(
+        ctx.or_port,
+        "export_or_port must be > 0 when export_connector is 'oracle'.",
+    )
+    service_name = _require_export_string(
+        ctx.or_service_name,
+        "export_or_service_name is required when export_connector is 'oracle'.",
+    )
+    user = _require_export_string(
+        ctx.or_user,
+        "export_or_user is required when export_connector is 'oracle'.",
+    )
+    resolved_password = _resolve_export_oracle_password(ctx.or_password)
+    if not resolved_password:
+        raise ValueError(
+            "Oracle password is required via --export-or-password or "
+            "LLM_DIFF_EXPORT_OR_PASSWORD."
+        )
+    schema = _require_export_string(
+        ctx.or_schema,
+        "export_or_schema is required when export_connector is 'oracle'.",
+    )
+    table = _require_export_string(
+        ctx.or_table,
+        "export_or_table is required when export_connector is 'oracle'.",
+    )
+    rows = _prepare_ndjson_rows_from_context(ctx, "oracle")
+    if not rows:
+        return None
+
+    columns = list(rows[0].keys())
+    query = _build_positional_insert_query(
+        table_parts=[schema, table],
+        columns=columns,
+        quote_identifier=_quote_oracle_identifier,
+        placeholder_tokens=[f":{index}" for index in range(1, len(columns) + 1)],
+    )
+    values_rows = [tuple(row[column] for column in columns) for row in rows]
+
+    def _insert_oracle_rows() -> None:
+        connection = _create_oracle_connection(
+            host=host,
+            port=port,
+            service_name=service_name,
+            user=user,
+            password=resolved_password,
+            timeout_seconds=ctx.timeout_seconds,
+        )
+        cursor = connection.cursor()
+        try:
+            cursor.executemany(query, values_rows)
+            connection.commit()
+        finally:
+            cursor.close()
+            connection.close()
+
+    return _ExportPreparedOperation(operation="executemany", execute=_insert_oracle_rows)
+
+
+_EXPORT_CONNECTOR_REGISTRY: dict[str, _ExportConnectorSpec] = {
+    "http": _ExportConnectorSpec(
+        format_contract="all_non_table",
+        prepare_operation=_prepare_http_export_operation,
+    ),
+    "s3": _ExportConnectorSpec(
+        format_contract="all_non_table",
+        prepare_operation=_prepare_s3_export_operation,
+    ),
+    "gcs": _ExportConnectorSpec(
+        format_contract="all_non_table",
+        prepare_operation=_prepare_gcs_export_operation,
+    ),
+    "azure_blob": _ExportConnectorSpec(
+        format_contract="all_non_table",
+        prepare_operation=_prepare_azure_blob_export_operation,
+    ),
+    "bigquery": _ExportConnectorSpec(
+        format_contract="ndjson_only",
+        prepare_operation=_prepare_bigquery_export_operation,
+    ),
+    "snowflake": _ExportConnectorSpec(
+        format_contract="ndjson_only",
+        prepare_operation=_prepare_snowflake_export_operation,
+    ),
+    "redshift": _ExportConnectorSpec(
+        format_contract="ndjson_only",
+        prepare_operation=_prepare_redshift_export_operation,
+    ),
+    "databricks": _ExportConnectorSpec(
+        format_contract="ndjson_only",
+        prepare_operation=_prepare_databricks_export_operation,
+    ),
+    "postgres": _ExportConnectorSpec(
+        format_contract="ndjson_only",
+        prepare_operation=_prepare_postgres_export_operation,
+    ),
+    "clickhouse": _ExportConnectorSpec(
+        format_contract="ndjson_only",
+        prepare_operation=_prepare_clickhouse_export_operation,
+    ),
+    "mssql": _ExportConnectorSpec(
+        format_contract="ndjson_only",
+        prepare_operation=_prepare_mssql_export_operation,
+    ),
+    "oracle": _ExportConnectorSpec(
+        format_contract="ndjson_only",
+        prepare_operation=_prepare_oracle_export_operation,
+    ),
+}
+
+
+def _validate_export_format_contract(
+    *,
+    connector: str,
+    report_format: str,
+    format_contract: _ExportFormatContract,
+) -> None:
+    if format_contract == "ndjson_only" and report_format != "ndjson":
+        raise ValueError(f"export_connector '{connector}' supports only --format ndjson.")
 
 
 def _dispatch_report_export(
@@ -2270,623 +3059,94 @@ def _dispatch_report_export(
     normalized = connector.strip().lower()
     if normalized == "none":
         return
-    if normalized == "http":
-        if not endpoint or not endpoint.strip():
-            raise ValueError("export_endpoint is required when export_connector is 'http'.")
-
-        headers = {
-            "Content-Type": "application/json",
-            "User-Agent": "llm-behavior-diff/0.1 report-export",
-        }
-        resolved_api_key = _resolve_export_api_key(api_key)
-        if resolved_api_key:
-            headers["Authorization"] = f"Bearer {resolved_api_key}"
-
-        payload = {
-            "event": "llm_behavior_diff_report_export",
-            "report": {
-                "id": report.id,
-                "suite_name": report.suite_name,
-                "model_a": report.model_a,
-                "model_b": report.model_b,
-                "total_tests": report.total_tests,
-                "total_diffs": report.total_diffs,
-                "regressions": report.regressions,
-                "improvements": report.improvements,
-            },
-            "export": {
-                "format": report_format,
-                "content_type": _content_type_for_report_format(report_format),
-                "content": content,
-            },
-        }
-
-        def _send_http_request() -> None:
-            response = httpx.post(
-                endpoint.strip(),
-                json=payload,
-                headers=headers,
-                timeout=timeout_seconds,
-            )
-            response.raise_for_status()
-
-        _run_export_operation_with_retry(
-            connector=normalized,
-            operation="post",
-            execute=_send_http_request,
+    spec = _EXPORT_CONNECTOR_REGISTRY.get(normalized)
+    if spec is None:
+        raise ValueError(
+            f"Unsupported export connector '{connector}'. Supported: none, http, s3, gcs, "
+            "bigquery, snowflake, redshift, azure_blob, databricks, postgres, clickhouse, "
+            "mssql, oracle."
         )
+
+    _validate_export_format_contract(
+        connector=normalized,
+        report_format=report_format,
+        format_contract=spec.format_contract,
+    )
+    ctx = _ExportDispatchContext(
+        report=report,
+        report_format=report_format,
+        content=content,
+        timeout_seconds=timeout_seconds,
+        endpoint=endpoint,
+        api_key=api_key,
+        s3_bucket=s3_bucket,
+        s3_prefix=s3_prefix,
+        s3_region=s3_region,
+        gcs_bucket=gcs_bucket,
+        gcs_prefix=gcs_prefix,
+        gcs_project=gcs_project,
+        az_account_url=az_account_url,
+        az_container=az_container,
+        az_prefix=az_prefix,
+        bq_project=bq_project,
+        bq_dataset=bq_dataset,
+        bq_table=bq_table,
+        bq_location=bq_location,
+        sf_account=sf_account,
+        sf_user=sf_user,
+        sf_password=sf_password,
+        sf_role=sf_role,
+        sf_warehouse=sf_warehouse,
+        sf_database=sf_database,
+        sf_schema=sf_schema,
+        sf_table=sf_table,
+        rs_host=rs_host,
+        rs_port=rs_port,
+        rs_database=rs_database,
+        rs_user=rs_user,
+        rs_password=rs_password,
+        rs_schema=rs_schema,
+        rs_table=rs_table,
+        rs_sslmode=rs_sslmode,
+        dbx_host=dbx_host,
+        dbx_http_path=dbx_http_path,
+        dbx_token=dbx_token,
+        dbx_catalog=dbx_catalog,
+        dbx_schema=dbx_schema,
+        dbx_table=dbx_table,
+        pg_host=pg_host,
+        pg_port=pg_port,
+        pg_database=pg_database,
+        pg_user=pg_user,
+        pg_password=pg_password,
+        pg_schema=pg_schema,
+        pg_table=pg_table,
+        pg_sslmode=pg_sslmode,
+        ms_host=ms_host,
+        ms_port=ms_port,
+        ms_database=ms_database,
+        ms_user=ms_user,
+        ms_password=ms_password,
+        ms_schema=ms_schema,
+        ms_table=ms_table,
+        ch_dsn=ch_dsn,
+        ch_database=ch_database,
+        ch_table=ch_table,
+        or_host=or_host,
+        or_port=or_port,
+        or_service_name=or_service_name,
+        or_user=or_user,
+        or_password=or_password,
+        or_schema=or_schema,
+        or_table=or_table,
+    )
+    operation = spec.prepare_operation(ctx)
+    if operation is None:
         return
-
-    if normalized == "s3":
-        if not s3_bucket or not s3_bucket.strip():
-            raise ValueError("export_s3_bucket is required when export_connector is 's3'.")
-        object_key = _build_s3_object_key(
-            prefix=s3_prefix,
-            suite_name=report.suite_name,
-            report_id=str(report.id),
-            report_format=report_format,
-        )
-
-        def _put_s3_object() -> None:
-            client = _create_s3_client(region=s3_region, timeout_seconds=timeout_seconds)
-            client.put_object(
-                Bucket=s3_bucket.strip(),
-                Key=object_key,
-                Body=content.encode("utf-8"),
-                ContentType=_content_type_for_report_format(report_format),
-            )
-
-        _run_export_operation_with_retry(
-            connector=normalized,
-            operation="put_object",
-            execute=_put_s3_object,
-        )
-        return
-
-    if normalized == "gcs":
-        if not gcs_bucket or not gcs_bucket.strip():
-            raise ValueError("export_gcs_bucket is required when export_connector is 'gcs'.")
-        object_key = _build_gcs_object_key(
-            prefix=gcs_prefix,
-            suite_name=report.suite_name,
-            report_id=str(report.id),
-            report_format=report_format,
-        )
-
-        def _upload_gcs_blob() -> None:
-            client = _create_gcs_client(project=gcs_project, timeout_seconds=timeout_seconds)
-            bucket = client.bucket(gcs_bucket.strip())
-            blob = bucket.blob(object_key)
-            blob.upload_from_string(
-                content,
-                content_type=_content_type_for_report_format(report_format),
-                timeout=timeout_seconds,
-            )
-
-        _run_export_operation_with_retry(
-            connector=normalized,
-            operation="upload_from_string",
-            execute=_upload_gcs_blob,
-        )
-        return
-
-    if normalized == "azure_blob":
-        if not az_account_url or not az_account_url.strip():
-            raise ValueError(
-                "export_az_account_url is required when export_connector is 'azure_blob'."
-            )
-        if not az_container or not az_container.strip():
-            raise ValueError(
-                "export_az_container is required when export_connector is 'azure_blob'."
-            )
-        object_key = _build_azure_blob_object_key(
-            prefix=az_prefix,
-            suite_name=report.suite_name,
-            report_id=str(report.id),
-            report_format=report_format,
-        )
-
-        def _upload_azure_blob() -> None:
-            service_client = _create_azure_blob_service_client(
-                account_url=az_account_url.strip(),
-                timeout_seconds=timeout_seconds,
-            )
-            blob_client = service_client.get_blob_client(
-                container=az_container.strip(),
-                blob=object_key,
-            )
-            blob_client.upload_blob(
-                content.encode("utf-8"),
-                overwrite=True,
-                content_type=_content_type_for_report_format(report_format),
-                timeout=timeout_seconds,
-            )
-
-        _run_export_operation_with_retry(
-            connector=normalized,
-            operation="upload_blob",
-            execute=_upload_azure_blob,
-        )
-        return
-
-    if normalized == "bigquery":
-        if report_format != "ndjson":
-            raise ValueError("export_connector 'bigquery' supports only --format ndjson.")
-        if not bq_project or not bq_project.strip():
-            raise ValueError("export_bq_project is required when export_connector is 'bigquery'.")
-        if not bq_dataset or not bq_dataset.strip():
-            raise ValueError("export_bq_dataset is required when export_connector is 'bigquery'.")
-        if not bq_table or not bq_table.strip():
-            raise ValueError("export_bq_table is required when export_connector is 'bigquery'.")
-
-        rows = _build_bigquery_rows_from_ndjson(content)
-        if not rows:
-            return
-
-        project = bq_project.strip()
-        dataset = bq_dataset.strip()
-        table = bq_table.strip()
-        table_id = f"{project}.{dataset}.{table}"
-
-        def _insert_bigquery_rows() -> None:
-            client = _create_bigquery_client(project=project, location=bq_location)
-            errors = client.insert_rows_json(table_id, rows, timeout=timeout_seconds)
-            if errors:
-                raise RuntimeError(f"BigQuery insert failed for table '{table_id}': {errors}")
-
-        _run_export_operation_with_retry(
-            connector=normalized,
-            operation="insert_rows_json",
-            execute=_insert_bigquery_rows,
-        )
-        return
-
-    if normalized == "snowflake":
-        if report_format != "ndjson":
-            raise ValueError("export_connector 'snowflake' supports only --format ndjson.")
-        if not sf_account or not sf_account.strip():
-            raise ValueError("export_sf_account is required when export_connector is 'snowflake'.")
-        if not sf_user or not sf_user.strip():
-            raise ValueError("export_sf_user is required when export_connector is 'snowflake'.")
-        resolved_password = _resolve_export_snowflake_password(sf_password)
-        if not resolved_password:
-            raise ValueError(
-                "Snowflake password is required via --export-sf-password or "
-                "LLM_DIFF_EXPORT_SF_PASSWORD."
-            )
-        if not sf_warehouse or not sf_warehouse.strip():
-            raise ValueError(
-                "export_sf_warehouse is required when export_connector is 'snowflake'."
-            )
-        if not sf_database or not sf_database.strip():
-            raise ValueError("export_sf_database is required when export_connector is 'snowflake'.")
-        if not sf_schema or not sf_schema.strip():
-            raise ValueError("export_sf_schema is required when export_connector is 'snowflake'.")
-        if not sf_table or not sf_table.strip():
-            raise ValueError("export_sf_table is required when export_connector is 'snowflake'.")
-
-        rows = _build_bigquery_rows_from_ndjson(content)
-        if not rows:
-            return
-
-        account = sf_account.strip()
-        user = sf_user.strip()
-        warehouse = sf_warehouse.strip()
-        database = sf_database.strip()
-        schema = sf_schema.strip()
-        table = sf_table.strip()
-        quoted_table = ".".join(
-            [
-                _quote_snowflake_identifier(database),
-                _quote_snowflake_identifier(schema),
-                _quote_snowflake_identifier(table),
-            ]
-        )
-        columns = list(rows[0].keys())
-        quoted_columns = ", ".join(_quote_snowflake_identifier(column) for column in columns)
-        placeholders = ", ".join(f"%({column})s" for column in columns)
-        query = f"INSERT INTO {quoted_table} ({quoted_columns}) VALUES ({placeholders})"
-
-        def _insert_snowflake_rows() -> None:
-            connection = _create_snowflake_connection(
-                account=account,
-                user=user,
-                password=resolved_password,
-                warehouse=warehouse,
-                database=database,
-                schema=schema,
-                role=sf_role,
-                timeout_seconds=timeout_seconds,
-            )
-            cursor = connection.cursor()
-            try:
-                cursor.executemany(query, rows)
-                connection.commit()
-            finally:
-                cursor.close()
-                connection.close()
-
-        _run_export_operation_with_retry(
-            connector=normalized,
-            operation="executemany",
-            execute=_insert_snowflake_rows,
-        )
-        return
-
-    if normalized == "redshift":
-        if report_format != "ndjson":
-            raise ValueError("export_connector 'redshift' supports only --format ndjson.")
-        if not rs_host or not rs_host.strip():
-            raise ValueError("export_rs_host is required when export_connector is 'redshift'.")
-        if rs_port <= 0:
-            raise ValueError("export_rs_port must be > 0 when export_connector is 'redshift'.")
-        if not rs_database or not rs_database.strip():
-            raise ValueError("export_rs_database is required when export_connector is 'redshift'.")
-        if not rs_user or not rs_user.strip():
-            raise ValueError("export_rs_user is required when export_connector is 'redshift'.")
-        resolved_rs_password = _resolve_export_redshift_password(rs_password)
-        if not resolved_rs_password:
-            raise ValueError(
-                "Redshift password is required via --export-rs-password or "
-                "LLM_DIFF_EXPORT_RS_PASSWORD."
-            )
-        if not rs_schema or not rs_schema.strip():
-            raise ValueError("export_rs_schema is required when export_connector is 'redshift'.")
-        if not rs_table or not rs_table.strip():
-            raise ValueError("export_rs_table is required when export_connector is 'redshift'.")
-        if not rs_sslmode or not rs_sslmode.strip():
-            raise ValueError(
-                "export_rs_sslmode must not be empty when export_connector is 'redshift'."
-            )
-
-        rows = _build_bigquery_rows_from_ndjson(content)
-        if not rows:
-            return
-
-        quoted_table = ".".join(
-            [
-                _quote_redshift_identifier(rs_schema),
-                _quote_redshift_identifier(rs_table),
-            ]
-        )
-        columns = list(rows[0].keys())
-        quoted_columns = ", ".join(_quote_redshift_identifier(column) for column in columns)
-        placeholders = ", ".join(f"%({column})s" for column in columns)
-        query = f"INSERT INTO {quoted_table} ({quoted_columns}) VALUES ({placeholders})"
-
-        def _insert_redshift_rows() -> None:
-            connection = _create_redshift_connection(
-                host=rs_host.strip(),
-                port=rs_port,
-                database=rs_database.strip(),
-                user=rs_user.strip(),
-                password=resolved_rs_password,
-                sslmode=rs_sslmode.strip(),
-                timeout_seconds=timeout_seconds,
-            )
-            cursor = connection.cursor()
-            try:
-                cursor.executemany(query, rows)
-                connection.commit()
-            finally:
-                cursor.close()
-                connection.close()
-
-        _run_export_operation_with_retry(
-            connector=normalized,
-            operation="executemany",
-            execute=_insert_redshift_rows,
-        )
-        return
-
-    if normalized == "databricks":
-        if report_format != "ndjson":
-            raise ValueError("export_connector 'databricks' supports only --format ndjson.")
-        if not dbx_host or not dbx_host.strip():
-            raise ValueError("export_dbx_host is required when export_connector is 'databricks'.")
-        if not dbx_http_path or not dbx_http_path.strip():
-            raise ValueError(
-                "export_dbx_http_path is required when export_connector is 'databricks'."
-            )
-        resolved_dbx_token = _resolve_export_databricks_token(dbx_token)
-        if not resolved_dbx_token:
-            raise ValueError(
-                "Databricks token is required via --export-dbx-token or "
-                "LLM_DIFF_EXPORT_DBX_TOKEN."
-            )
-        if not dbx_catalog or not dbx_catalog.strip():
-            raise ValueError(
-                "export_dbx_catalog is required when export_connector is 'databricks'."
-            )
-        if not dbx_schema or not dbx_schema.strip():
-            raise ValueError("export_dbx_schema is required when export_connector is 'databricks'.")
-        if not dbx_table or not dbx_table.strip():
-            raise ValueError("export_dbx_table is required when export_connector is 'databricks'.")
-
-        rows = _build_bigquery_rows_from_ndjson(content)
-        if not rows:
-            return
-
-        quoted_table = ".".join(
-            [
-                _quote_databricks_identifier(dbx_catalog),
-                _quote_databricks_identifier(dbx_schema),
-                _quote_databricks_identifier(dbx_table),
-            ]
-        )
-        columns = list(rows[0].keys())
-        quoted_columns = ", ".join(_quote_databricks_identifier(column) for column in columns)
-        placeholders = ", ".join(f"%({column})s" for column in columns)
-        query = f"INSERT INTO {quoted_table} ({quoted_columns}) VALUES ({placeholders})"
-
-        def _insert_databricks_rows() -> None:
-            connection = _create_databricks_connection(
-                host=dbx_host,
-                http_path=dbx_http_path,
-                token=resolved_dbx_token,
-                timeout_seconds=timeout_seconds,
-            )
-            cursor = connection.cursor()
-            try:
-                cursor.executemany(query, rows)
-                connection.commit()
-            finally:
-                cursor.close()
-                connection.close()
-
-        _run_export_operation_with_retry(
-            connector=normalized,
-            operation="executemany",
-            execute=_insert_databricks_rows,
-        )
-        return
-
-    if normalized == "postgres":
-        if report_format != "ndjson":
-            raise ValueError("export_connector 'postgres' supports only --format ndjson.")
-        if not pg_host or not pg_host.strip():
-            raise ValueError("export_pg_host is required when export_connector is 'postgres'.")
-        if pg_port <= 0:
-            raise ValueError("export_pg_port must be > 0 when export_connector is 'postgres'.")
-        if not pg_database or not pg_database.strip():
-            raise ValueError("export_pg_database is required when export_connector is 'postgres'.")
-        if not pg_user or not pg_user.strip():
-            raise ValueError("export_pg_user is required when export_connector is 'postgres'.")
-        resolved_pg_password = _resolve_export_postgres_password(pg_password)
-        if not resolved_pg_password:
-            raise ValueError(
-                "PostgreSQL password is required via --export-pg-password or "
-                "LLM_DIFF_EXPORT_PG_PASSWORD."
-            )
-        if not pg_schema or not pg_schema.strip():
-            raise ValueError("export_pg_schema is required when export_connector is 'postgres'.")
-        if not pg_table or not pg_table.strip():
-            raise ValueError("export_pg_table is required when export_connector is 'postgres'.")
-        if not pg_sslmode or not pg_sslmode.strip():
-            raise ValueError(
-                "export_pg_sslmode must not be empty when export_connector is 'postgres'."
-            )
-
-        rows = _build_bigquery_rows_from_ndjson(content)
-        if not rows:
-            return
-
-        quoted_table = ".".join(
-            [
-                _quote_postgres_identifier(pg_schema),
-                _quote_postgres_identifier(pg_table),
-            ]
-        )
-        columns = list(rows[0].keys())
-        quoted_columns = ", ".join(_quote_postgres_identifier(column) for column in columns)
-        placeholders = ", ".join(f"%({column})s" for column in columns)
-        query = f"INSERT INTO {quoted_table} ({quoted_columns}) VALUES ({placeholders})"
-
-        def _insert_postgres_rows() -> None:
-            connection = _create_postgres_connection(
-                host=pg_host.strip(),
-                port=pg_port,
-                database=pg_database.strip(),
-                user=pg_user.strip(),
-                password=resolved_pg_password,
-                sslmode=pg_sslmode.strip(),
-                timeout_seconds=timeout_seconds,
-            )
-            cursor = connection.cursor()
-            try:
-                cursor.executemany(query, rows)
-                connection.commit()
-            finally:
-                cursor.close()
-                connection.close()
-
-        _run_export_operation_with_retry(
-            connector=normalized,
-            operation="executemany",
-            execute=_insert_postgres_rows,
-        )
-        return
-
-    if normalized == "clickhouse":
-        if report_format != "ndjson":
-            raise ValueError("export_connector 'clickhouse' supports only --format ndjson.")
-        resolved_ch_dsn = _resolve_export_clickhouse_dsn(ch_dsn)
-        if not resolved_ch_dsn:
-            raise ValueError(
-                "ClickHouse DSN is required via --export-ch-dsn or LLM_DIFF_EXPORT_CH_DSN."
-            )
-        if not ch_database or not ch_database.strip():
-            raise ValueError(
-                "export_ch_database is required when export_connector is 'clickhouse'."
-            )
-        if not ch_table or not ch_table.strip():
-            raise ValueError("export_ch_table is required when export_connector is 'clickhouse'.")
-
-        rows = _build_bigquery_rows_from_ndjson(content)
-        if not rows:
-            return
-
-        columns = list(rows[0].keys())
-        quoted_table = ".".join(
-            [
-                _quote_clickhouse_identifier(ch_database),
-                _quote_clickhouse_identifier(ch_table),
-            ]
-        )
-        quoted_columns = ", ".join(_quote_clickhouse_identifier(column) for column in columns)
-        value_rows = [tuple(row[column] for column in columns) for row in rows]
-        query = f"INSERT INTO {quoted_table} ({quoted_columns}) VALUES"
-
-        def _insert_clickhouse_rows() -> None:
-            client = _create_clickhouse_client(dsn=resolved_ch_dsn, timeout_seconds=timeout_seconds)
-            try:
-                client.execute(query, value_rows)
-            finally:
-                disconnect_connection = getattr(client, "disconnect_connection", None)
-                if callable(disconnect_connection):
-                    disconnect_connection()
-                else:
-                    disconnect = getattr(client, "disconnect", None)
-                    if callable(disconnect):
-                        disconnect()
-
-        _run_export_operation_with_retry(
-            connector=normalized,
-            operation="executemany",
-            execute=_insert_clickhouse_rows,
-        )
-        return
-
-    if normalized == "mssql":
-        if report_format != "ndjson":
-            raise ValueError("export_connector 'mssql' supports only --format ndjson.")
-        if not ms_host or not ms_host.strip():
-            raise ValueError("export_ms_host is required when export_connector is 'mssql'.")
-        if ms_port <= 0:
-            raise ValueError("export_ms_port must be > 0 when export_connector is 'mssql'.")
-        if not ms_database or not ms_database.strip():
-            raise ValueError("export_ms_database is required when export_connector is 'mssql'.")
-        if not ms_user or not ms_user.strip():
-            raise ValueError("export_ms_user is required when export_connector is 'mssql'.")
-        resolved_ms_password = _resolve_export_mssql_password(ms_password)
-        if not resolved_ms_password:
-            raise ValueError(
-                "MSSQL password is required via --export-ms-password or "
-                "LLM_DIFF_EXPORT_MS_PASSWORD."
-            )
-        if not ms_schema or not ms_schema.strip():
-            raise ValueError("export_ms_schema is required when export_connector is 'mssql'.")
-        if not ms_table or not ms_table.strip():
-            raise ValueError("export_ms_table is required when export_connector is 'mssql'.")
-
-        rows = _build_bigquery_rows_from_ndjson(content)
-        if not rows:
-            return
-
-        columns = list(rows[0].keys())
-        quoted_table = ".".join(
-            [
-                _quote_mssql_identifier(ms_schema),
-                _quote_mssql_identifier(ms_table),
-            ]
-        )
-        quoted_columns = ", ".join(_quote_mssql_identifier(column) for column in columns)
-        placeholders = ", ".join(["%s"] * len(columns))
-        query = f"INSERT INTO {quoted_table} ({quoted_columns}) VALUES ({placeholders})"
-        values_rows = [tuple(row[column] for column in columns) for row in rows]
-
-        def _insert_mssql_rows() -> None:
-            connection = _create_mssql_connection(
-                host=ms_host.strip(),
-                port=ms_port,
-                database=ms_database.strip(),
-                user=ms_user.strip(),
-                password=resolved_ms_password,
-                timeout_seconds=timeout_seconds,
-            )
-            cursor = connection.cursor()
-            try:
-                cursor.executemany(query, values_rows)
-                connection.commit()
-            finally:
-                cursor.close()
-                connection.close()
-
-        _run_export_operation_with_retry(
-            connector=normalized,
-            operation="executemany",
-            execute=_insert_mssql_rows,
-        )
-        return
-
-    if normalized == "oracle":
-        if report_format != "ndjson":
-            raise ValueError("export_connector 'oracle' supports only --format ndjson.")
-        if not or_host or not or_host.strip():
-            raise ValueError("export_or_host is required when export_connector is 'oracle'.")
-        if or_port <= 0:
-            raise ValueError("export_or_port must be > 0 when export_connector is 'oracle'.")
-        if not or_service_name or not or_service_name.strip():
-            raise ValueError(
-                "export_or_service_name is required when export_connector is 'oracle'."
-            )
-        if not or_user or not or_user.strip():
-            raise ValueError("export_or_user is required when export_connector is 'oracle'.")
-        resolved_or_password = _resolve_export_oracle_password(or_password)
-        if not resolved_or_password:
-            raise ValueError(
-                "Oracle password is required via --export-or-password or "
-                "LLM_DIFF_EXPORT_OR_PASSWORD."
-            )
-        if not or_schema or not or_schema.strip():
-            raise ValueError("export_or_schema is required when export_connector is 'oracle'.")
-        if not or_table or not or_table.strip():
-            raise ValueError("export_or_table is required when export_connector is 'oracle'.")
-
-        rows = _build_bigquery_rows_from_ndjson(content)
-        if not rows:
-            return
-
-        columns = list(rows[0].keys())
-        quoted_table = ".".join(
-            [
-                _quote_oracle_identifier(or_schema),
-                _quote_oracle_identifier(or_table),
-            ]
-        )
-        quoted_columns = ", ".join(_quote_oracle_identifier(column) for column in columns)
-        placeholders = ", ".join(f":{index}" for index in range(1, len(columns) + 1))
-        query = f"INSERT INTO {quoted_table} ({quoted_columns}) VALUES ({placeholders})"
-        values_rows = [tuple(row[column] for column in columns) for row in rows]
-
-        def _insert_oracle_rows() -> None:
-            connection = _create_oracle_connection(
-                host=or_host.strip(),
-                port=or_port,
-                service_name=or_service_name.strip(),
-                user=or_user.strip(),
-                password=resolved_or_password,
-                timeout_seconds=timeout_seconds,
-            )
-            cursor = connection.cursor()
-            try:
-                cursor.executemany(query, values_rows)
-                connection.commit()
-            finally:
-                cursor.close()
-                connection.close()
-
-        _run_export_operation_with_retry(
-            connector=normalized,
-            operation="executemany",
-            execute=_insert_oracle_rows,
-        )
-        return
-
-    raise ValueError(
-        f"Unsupported export connector '{connector}'. Supported: none, http, s3, gcs, "
-        "bigquery, snowflake, redshift, azure_blob, databricks, postgres, clickhouse, "
-        "mssql, oracle."
+    _run_export_operation_with_retry(
+        connector=normalized,
+        operation=operation.operation,
+        execute=operation.execute,
     )
 
 
