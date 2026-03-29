@@ -238,6 +238,7 @@ def run(
             "mssql",
             "clickhouse",
             "oracle",
+            "mysql",
         ]
     ),
     default="none",
@@ -491,6 +492,38 @@ def run(
     help="PostgreSQL sslmode",
 )
 @click.option(
+    "--export-mysql-host",
+    type=str,
+    help="MySQL host (required when --export-connector mysql)",
+)
+@click.option(
+    "--export-mysql-port",
+    type=int,
+    default=3306,
+    show_default=True,
+    help="MySQL port",
+)
+@click.option(
+    "--export-mysql-database",
+    type=str,
+    help="MySQL database (required when --export-connector mysql)",
+)
+@click.option(
+    "--export-mysql-user",
+    type=str,
+    help="MySQL user (required when --export-connector mysql)",
+)
+@click.option(
+    "--export-mysql-password",
+    type=str,
+    help="MySQL password (optional flag; fallback: LLM_DIFF_EXPORT_MYSQL_PASSWORD)",
+)
+@click.option(
+    "--export-mysql-table",
+    type=str,
+    help="MySQL table (required when --export-connector mysql)",
+)
+@click.option(
     "--export-ms-host",
     type=str,
     help="MSSQL host (required when --export-connector mssql)",
@@ -630,6 +663,12 @@ def report(
     export_pg_schema: Optional[str],
     export_pg_table: Optional[str],
     export_pg_sslmode: str,
+    export_mysql_host: Optional[str],
+    export_mysql_port: int,
+    export_mysql_database: Optional[str],
+    export_mysql_user: Optional[str],
+    export_mysql_password: Optional[str],
+    export_mysql_table: Optional[str],
     export_ms_host: Optional[str],
     export_ms_port: int,
     export_ms_database: Optional[str],
@@ -740,6 +779,12 @@ def report(
                 pg_schema=export_pg_schema,
                 pg_table=export_pg_table,
                 pg_sslmode=export_pg_sslmode,
+                mysql_host=export_mysql_host,
+                mysql_port=export_mysql_port,
+                mysql_database=export_mysql_database,
+                mysql_user=export_mysql_user,
+                mysql_password=export_mysql_password,
+                mysql_table=export_mysql_table,
                 ms_host=export_ms_host,
                 ms_port=export_ms_port,
                 ms_database=export_ms_database,
@@ -1621,6 +1666,13 @@ def _resolve_export_postgres_password(explicit_password: Optional[str]) -> Optio
     return env_password or None
 
 
+def _resolve_export_mysql_password(explicit_password: Optional[str]) -> Optional[str]:
+    if explicit_password and explicit_password.strip():
+        return explicit_password.strip()
+    env_password = os.getenv("LLM_DIFF_EXPORT_MYSQL_PASSWORD", "").strip()
+    return env_password or None
+
+
 def _resolve_export_clickhouse_dsn(explicit_dsn: Optional[str]) -> Optional[str]:
     if explicit_dsn and explicit_dsn.strip():
         return explicit_dsn.strip()
@@ -1819,6 +1871,33 @@ def _create_postgres_connection(
     )
 
 
+def _create_mysql_connection(
+    *,
+    host: str,
+    port: int,
+    database: str,
+    user: str,
+    password: str,
+    timeout_seconds: float,
+) -> Any:
+    import pymysql  # type: ignore[import-untyped]
+
+    connect_timeout = max(1, int(timeout_seconds))
+    read_timeout = max(1, int(timeout_seconds))
+    write_timeout = max(1, int(timeout_seconds))
+    return pymysql.connect(
+        host=host,
+        port=port,
+        database=database,
+        user=user,
+        password=password,
+        connect_timeout=connect_timeout,
+        read_timeout=read_timeout,
+        write_timeout=write_timeout,
+        charset="utf8mb4",
+    )
+
+
 def _create_clickhouse_client(*, dsn: str, timeout_seconds: float) -> Any:
     from clickhouse_driver import Client
 
@@ -1948,6 +2027,14 @@ def _quote_postgres_identifier(identifier: str) -> str:
     return f'"{escaped}"'
 
 
+def _quote_mysql_identifier(identifier: str) -> str:
+    normalized = identifier.strip()
+    if not normalized:
+        raise ValueError("MySQL identifier must not be empty.")
+    escaped = normalized.replace("`", "``")
+    return f"`{escaped}`"
+
+
 def _quote_clickhouse_identifier(identifier: str) -> str:
     normalized = identifier.strip()
     if not normalized:
@@ -2032,6 +2119,12 @@ class _ExportDispatchContext:
     pg_schema: Optional[str]
     pg_table: Optional[str]
     pg_sslmode: str
+    mysql_host: Optional[str]
+    mysql_port: int
+    mysql_database: Optional[str]
+    mysql_user: Optional[str]
+    mysql_password: Optional[str]
+    mysql_table: Optional[str]
     ms_host: Optional[str]
     ms_port: int
     ms_database: Optional[str]
@@ -2148,6 +2241,7 @@ _SQL_WAREHOUSE_EXPORT_CONNECTORS = {
     "redshift",
     "databricks",
     "postgres",
+    "mysql",
     "clickhouse",
     "mssql",
     "oracle",
@@ -2747,6 +2841,68 @@ def _prepare_postgres_export_operation(
     return _ExportPreparedOperation(operation="executemany", execute=_insert_postgres_rows)
 
 
+def _prepare_mysql_export_operation(
+    ctx: _ExportDispatchContext,
+) -> Optional[_ExportPreparedOperation]:
+    host = _require_export_string(
+        ctx.mysql_host,
+        "export_mysql_host is required when export_connector is 'mysql'.",
+    )
+    port = _require_positive_export_int(
+        ctx.mysql_port,
+        "export_mysql_port must be > 0 when export_connector is 'mysql'.",
+    )
+    database = _require_export_string(
+        ctx.mysql_database,
+        "export_mysql_database is required when export_connector is 'mysql'.",
+    )
+    user = _require_export_string(
+        ctx.mysql_user,
+        "export_mysql_user is required when export_connector is 'mysql'.",
+    )
+    resolved_password = _resolve_export_mysql_password(ctx.mysql_password)
+    if not resolved_password:
+        raise ValueError(
+            "MySQL password is required via --export-mysql-password or "
+            "LLM_DIFF_EXPORT_MYSQL_PASSWORD."
+        )
+    table = _require_export_string(
+        ctx.mysql_table,
+        "export_mysql_table is required when export_connector is 'mysql'.",
+    )
+    rows = _prepare_ndjson_rows_from_context(ctx, "mysql")
+    if not rows:
+        return None
+
+    columns = list(rows[0].keys())
+    query = _build_positional_insert_query(
+        table_parts=[database, table],
+        columns=columns,
+        quote_identifier=_quote_mysql_identifier,
+        placeholder_tokens=["%s"] * len(columns),
+    )
+    values_rows = [tuple(row[column] for column in columns) for row in rows]
+
+    def _insert_mysql_rows() -> None:
+        connection = _create_mysql_connection(
+            host=host,
+            port=port,
+            database=database,
+            user=user,
+            password=resolved_password,
+            timeout_seconds=ctx.timeout_seconds,
+        )
+        cursor = connection.cursor()
+        try:
+            cursor.executemany(query, values_rows)
+            connection.commit()
+        finally:
+            cursor.close()
+            connection.close()
+
+    return _ExportPreparedOperation(operation="executemany", execute=_insert_mysql_rows)
+
+
 def _prepare_clickhouse_export_operation(
     ctx: _ExportDispatchContext,
 ) -> Optional[_ExportPreparedOperation]:
@@ -2959,6 +3115,10 @@ _EXPORT_CONNECTOR_REGISTRY: dict[str, _ExportConnectorSpec] = {
         format_contract="ndjson_only",
         prepare_operation=_prepare_postgres_export_operation,
     ),
+    "mysql": _ExportConnectorSpec(
+        format_contract="ndjson_only",
+        prepare_operation=_prepare_mysql_export_operation,
+    ),
     "clickhouse": _ExportConnectorSpec(
         format_contract="ndjson_only",
         prepare_operation=_prepare_clickhouse_export_operation,
@@ -3035,6 +3195,12 @@ def _dispatch_report_export(
     pg_schema: Optional[str],
     pg_table: Optional[str],
     pg_sslmode: str,
+    mysql_host: Optional[str],
+    mysql_port: int,
+    mysql_database: Optional[str],
+    mysql_user: Optional[str],
+    mysql_password: Optional[str],
+    mysql_table: Optional[str],
     ms_host: Optional[str],
     ms_port: int,
     ms_database: Optional[str],
@@ -3064,7 +3230,7 @@ def _dispatch_report_export(
         raise ValueError(
             f"Unsupported export connector '{connector}'. Supported: none, http, s3, gcs, "
             "bigquery, snowflake, redshift, azure_blob, databricks, postgres, clickhouse, "
-            "mssql, oracle."
+            "mssql, oracle, mysql."
         )
 
     _validate_export_format_contract(
@@ -3122,6 +3288,12 @@ def _dispatch_report_export(
         pg_schema=pg_schema,
         pg_table=pg_table,
         pg_sslmode=pg_sslmode,
+        mysql_host=mysql_host,
+        mysql_port=mysql_port,
+        mysql_database=mysql_database,
+        mysql_user=mysql_user,
+        mysql_password=mysql_password,
+        mysql_table=mysql_table,
         ms_host=ms_host,
         ms_port=ms_port,
         ms_database=ms_database,

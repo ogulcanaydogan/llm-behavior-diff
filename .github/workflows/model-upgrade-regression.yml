@@ -82,6 +82,7 @@ on:
           - clickhouse
           - mssql
           - oracle
+          - mysql
       export_connector_endpoint:
         description: "Optional export connector endpoint URL (required for export_connector=http)"
         required: false
@@ -254,6 +255,8 @@ on:
         required: false
       ORACLE_PASSWORD:
         required: false
+      MYSQL_PASSWORD:
+        required: false
 
 permissions:
   contents: read
@@ -338,6 +341,11 @@ jobs:
       EXPORT_OR_USER: ${{ vars.EXPORT_OR_USER }}
       EXPORT_OR_SCHEMA: ${{ vars.EXPORT_OR_SCHEMA }}
       EXPORT_OR_TABLE: ${{ vars.EXPORT_OR_TABLE }}
+      EXPORT_MYSQL_HOST: ${{ vars.EXPORT_MYSQL_HOST }}
+      EXPORT_MYSQL_PORT: ${{ vars.EXPORT_MYSQL_PORT }}
+      EXPORT_MYSQL_DATABASE: ${{ vars.EXPORT_MYSQL_DATABASE }}
+      EXPORT_MYSQL_USER: ${{ vars.EXPORT_MYSQL_USER }}
+      EXPORT_MYSQL_TABLE: ${{ vars.EXPORT_MYSQL_TABLE }}
       AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
       AWS_SESSION_TOKEN: ${{ secrets.AWS_SESSION_TOKEN }}
@@ -348,6 +356,7 @@ jobs:
       LLM_DIFF_EXPORT_CH_DSN: ${{ secrets.CLICKHOUSE_DSN }}
       LLM_DIFF_EXPORT_MS_PASSWORD: ${{ secrets.MSSQL_PASSWORD }}
       LLM_DIFF_EXPORT_OR_PASSWORD: ${{ secrets.ORACLE_PASSWORD }}
+      LLM_DIFF_EXPORT_MYSQL_PASSWORD: ${{ secrets.MYSQL_PASSWORD }}
 
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
@@ -704,6 +713,33 @@ jobs:
               connector_args+=(--export-or-user "$EXPORT_OR_USER")
               connector_args+=(--export-or-schema "$EXPORT_OR_SCHEMA")
               connector_args+=(--export-or-table "$EXPORT_OR_TABLE")
+              export_args_ndjson=("${connector_args[@]}")
+            elif [ "$EXPORT_CONNECTOR" = "mysql" ]; then
+              if [ -z "$EXPORT_MYSQL_HOST" ]; then
+                echo "EXPORT_MYSQL_HOST repository variable is required when export_connector=mysql."
+                exit 1
+              fi
+              if [ -z "$EXPORT_MYSQL_DATABASE" ]; then
+                echo "EXPORT_MYSQL_DATABASE repository variable is required when export_connector=mysql."
+                exit 1
+              fi
+              if [ -z "$EXPORT_MYSQL_USER" ]; then
+                echo "EXPORT_MYSQL_USER repository variable is required when export_connector=mysql."
+                exit 1
+              fi
+              if [ -z "$LLM_DIFF_EXPORT_MYSQL_PASSWORD" ]; then
+                echo "MYSQL_PASSWORD secret is required when export_connector=mysql."
+                exit 1
+              fi
+              if [ -z "$EXPORT_MYSQL_TABLE" ]; then
+                echo "EXPORT_MYSQL_TABLE repository variable is required when export_connector=mysql."
+                exit 1
+              fi
+              connector_args+=(--export-mysql-host "$EXPORT_MYSQL_HOST")
+              connector_args+=(--export-mysql-port "${EXPORT_MYSQL_PORT:-3306}")
+              connector_args+=(--export-mysql-database "$EXPORT_MYSQL_DATABASE")
+              connector_args+=(--export-mysql-user "$EXPORT_MYSQL_USER")
+              connector_args+=(--export-mysql-table "$EXPORT_MYSQL_TABLE")
               export_args_ndjson=("${connector_args[@]}")
             else
               echo "Unsupported export_connector: $EXPORT_CONNECTOR"
