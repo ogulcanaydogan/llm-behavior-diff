@@ -46,7 +46,7 @@ Ad-hoc prompt checks miss these patterns and are hard to reproduce in CI.
 - Single-suite run command with retry/rate-limit/cost controls
 - JSON report artifacts for CI and governance workflows
 - Report rendering in `table`, `json`, `markdown`, `csv`, `ndjson`, `junit`, and interactive self-contained `html`
-- Optional direct export connectors for rendered reports (`--export-connector http|s3|gcs|bigquery|snowflake|redshift|azure_blob|databricks|postgres|clickhouse|mssql|oracle|mysql`)
+- Optional direct export connectors for rendered reports (`--export-connector http|s3|gcs|bigquery|snowflake|redshift|azure_blob|databricks|postgres|clickhouse|mssql|oracle|mysql|mariadb`)
 - Reliability-hardened export execution (connector registry + shared validation/NDJSON normalization + transient retry with fail-fast final outcome)
 - Run-to-run compare command with delta metrics + bootstrap CI + permutation p-value + effect size + FDR
 - Policy gate command for deterministic release decisions (`strict|balanced|permissive`)
@@ -85,6 +85,7 @@ export LLM_DIFF_LOCAL_BASE_URL=http://localhost:11434/v1
 # export LLM_DIFF_EXPORT_CH_DSN=...       # optional ClickHouse DSN
 # export LLM_DIFF_EXPORT_MS_PASSWORD=...  # optional MSSQL export password
 # export LLM_DIFF_EXPORT_MYSQL_PASSWORD=...  # optional MySQL export password
+# export LLM_DIFF_EXPORT_MDB_PASSWORD=...    # optional MariaDB export password
 ```
 
 ### 2) Create a suite
@@ -217,6 +218,13 @@ llm-diff report run_report.json --format ndjson -o run_report.ndjson \
   --export-mysql-database analytics \
   --export-mysql-user svc_llm_diff \
   --export-mysql-table diff_rows
+llm-diff report run_report.json --format ndjson -o run_report.ndjson \
+  --export-connector mariadb \
+  --export-mdb-host mariadb.example.com \
+  --export-mdb-port 3306 \
+  --export-mdb-database analytics \
+  --export-mdb-user svc_llm_diff \
+  --export-mdb-table diff_rows
 ```
 
 ### 6) Compare two runs
@@ -343,6 +351,7 @@ Optional direct export connectors:
 - MSSQL (NDJSON only): `--export-connector mssql --format ndjson --export-ms-host ... --export-ms-port 1433 --export-ms-database ... --export-ms-user ... --export-ms-schema ... --export-ms-table ...` (`--export-ms-password` or `LLM_DIFF_EXPORT_MS_PASSWORD`)
 - Oracle (NDJSON only): `--export-connector oracle --format ndjson --export-or-host ... --export-or-port 1521 --export-or-service-name ... --export-or-user ... --export-or-schema ... --export-or-table ...` (`--export-or-password` or `LLM_DIFF_EXPORT_OR_PASSWORD`)
 - MySQL (NDJSON only): `--export-connector mysql --format ndjson --export-mysql-host ... --export-mysql-port 3306 --export-mysql-database ... --export-mysql-user ... --export-mysql-table ...` (`--export-mysql-password` or `LLM_DIFF_EXPORT_MYSQL_PASSWORD`)
+- MariaDB (NDJSON only): `--export-connector mariadb --format ndjson --export-mdb-host ... --export-mdb-port 3306 --export-mdb-database ... --export-mdb-user ... --export-mdb-table ...` (`--export-mdb-password` or `LLM_DIFF_EXPORT_MDB_PASSWORD`)
 - Export resilience contract: transient connector errors are retried automatically (`max_attempts=3`, backoff `0.5s`, `1.0s` + bounded jitter), and unresolved failures remain fail-fast.
 
 ### `llm-diff compare`
@@ -374,7 +383,7 @@ Builds artifact-first benchmark quality summaries from one or more report JSON f
 - `release-check.yml`: build/twine/wheel smoke checks
 - `publish-pypi.yml`: manual TestPyPI/PyPI publish flow
 - `docker-image.yml`: PR/master build+smoke, optional manual GHCR push
-- `model-upgrade-regression.yml`: manual/reusable regression gate (`gate_policy`, `gate_policy_pack`, optional `gate_policy_file`; optional factual connector inputs; default `strict + core`) + per-suite export artifacts (`csv`, `ndjson`, `junit`) + optional direct export connectors (`http|s3|gcs|bigquery|snowflake|redshift|azure_blob|databricks|postgres|clickhouse|mssql|oracle|mysql`; `gcs`, `redshift`, `azure_blob`, `databricks`, `postgres`, `clickhouse`, `mssql`, `oracle`, and `mysql` values are env-based via repo vars/secrets)
+- `model-upgrade-regression.yml`: manual/reusable regression gate (`gate_policy`, `gate_policy_pack`, optional `gate_policy_file`; optional factual connector inputs; default `strict + core`) + per-suite export artifacts (`csv`, `ndjson`, `junit`) + optional direct export connectors (`http|s3|gcs|bigquery|snowflake|redshift|azure_blob|databricks|postgres|clickhouse|mssql|oracle|mysql|mariadb`; `gcs`, `redshift`, `azure_blob`, `databricks`, `postgres`, `clickhouse`, `mssql`, `oracle`, `mysql`, and `mariadb` values are env-based via repo vars/secrets)
 - `model-upgrade-regression.yml` also emits always-on benchmark artifacts (`artifacts/benchmark/benchmark.json`, `artifacts/benchmark/benchmark.md`) from generated suite report JSONs
 - Node24 deprecation closure: workflows keep `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24=true` and now run on Node24-ready major action pins.
 - Workflow security hardening: all third-party actions are pinned to full commit SHAs; Dependabot auto-updates `github-actions` minor/patch versions weekly, while major bumps are handled in planned maintenance windows.
@@ -413,7 +422,7 @@ Implemented now:
 - risk-tier gate policies (CLI + model-upgrade workflow)
 - artifact-first benchmark quality pack (advisory-only, with extended significance summary)
 - enterprise-ready report export artifacts (`csv`, `ndjson`, `junit`)
-- optional direct export connectors (`http`, `s3`, `gcs`, `bigquery`, `snowflake`, `redshift`, `azure_blob`, `databricks`, `postgres`, `clickhouse`, `mssql`, `oracle`, `mysql`; `gcs`/`azure_blob` support all non-table formats, `bigquery`/`snowflake`/`redshift`/`databricks`/`postgres`/`clickhouse`/`mssql`/`oracle`/`mysql` are NDJSON-only)
+- optional direct export connectors (`http`, `s3`, `gcs`, `bigquery`, `snowflake`, `redshift`, `azure_blob`, `databricks`, `postgres`, `clickhouse`, `mssql`, `oracle`, `mysql`, `mariadb`; `gcs`/`azure_blob` support all non-table formats, `bigquery`/`snowflake`/`redshift`/`databricks`/`postgres`/`clickhouse`/`mssql`/`oracle`/`mysql`/`mariadb` are NDJSON-only)
 - export connector reliability hardening (transient retries with fail-fast final semantics)
 - suite templates and CI distribution workflows
 
@@ -423,7 +432,7 @@ Committed roadmap status:
 
 Future exploration candidates (not committed yet):
 
-- additional provider-specific external sinks beyond the current set (`http`, `s3`, `gcs`, `bigquery`, `snowflake`, `redshift`, `azure_blob`, `databricks`, `postgres`, `clickhouse`, `mssql`, `oracle`, `mysql`)
+- additional provider-specific external sinks beyond the current set (`http`, `s3`, `gcs`, `bigquery`, `snowflake`, `redshift`, `azure_blob`, `databricks`, `postgres`, `clickhouse`, `mssql`, `oracle`, `mysql`, `mariadb`)
 
 ## Contributing
 

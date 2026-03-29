@@ -46,6 +46,7 @@ dependencies = [
     "pymssql>=2.3.0",
     "oracledb>=2.4.0",
     "pymysql>=1.1.1",
+    "mariadb>=1.1.10",
     "pyyaml>=6.0",
 ]
 

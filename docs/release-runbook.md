@@ -85,7 +85,7 @@ Inputs:
 - `factual_connector` (optional, default `none`): `none|wikipedia`
 - `factual_connector_timeout` (optional, default `8`)
 - `factual_connector_max_results` (optional, default `3`)
-- `export_connector` (optional, default `none`): `none|http|s3|gcs|bigquery|snowflake|redshift|azure_blob|databricks|postgres|clickhouse|mssql|oracle|mysql`
+- `export_connector` (optional, default `none`): `none|http|s3|gcs|bigquery|snowflake|redshift|azure_blob|databricks|postgres|clickhouse|mssql|oracle|mysql|mariadb`
 - `export_connector_endpoint` (optional): required when `export_connector=http`
 - `export_connector_timeout` (optional, default `10`)
 - `export_s3_bucket` (optional): required when `export_connector=s3`
@@ -179,6 +179,15 @@ MySQL workflow wiring (env-based, no new workflow input):
 - `EXPORT_MYSQL_USER` repository variable is required when `export_connector=mysql`
 - `EXPORT_MYSQL_TABLE` repository variable is required when `export_connector=mysql`
 - `MYSQL_PASSWORD` secret is required when `export_connector=mysql`
+
+MariaDB workflow wiring (env-based, no new workflow input):
+
+- `EXPORT_MDB_HOST` repository variable is required when `export_connector=mariadb`
+- `EXPORT_MDB_PORT` repository variable is optional (default `3306`)
+- `EXPORT_MDB_DATABASE` repository variable is required when `export_connector=mariadb`
+- `EXPORT_MDB_USER` repository variable is required when `export_connector=mariadb`
+- `EXPORT_MDB_TABLE` repository variable is required when `export_connector=mariadb`
+- `MARIADB_PASSWORD` secret is required when `export_connector=mariadb`
 
 Default suite set when `suite_list` is empty:
 
@@ -288,6 +297,12 @@ Artifacts:
   repo vars and password from `--export-mysql-password` or
   `LLM_DIFF_EXPORT_MYSQL_PASSWORD` (workflow: `MYSQL_PASSWORD` secret).
 - MySQL export follows fail-fast semantics: missing config, authentication errors,
+  or row insert errors fail the command/workflow step.
+- When `export_connector=mariadb` is enabled, only NDJSON exports are uploaded to
+  MariaDB (`export_mdb_database.export_mdb_table`) using connection fields from
+  repo vars and password from `--export-mdb-password` or
+  `LLM_DIFF_EXPORT_MDB_PASSWORD` (workflow: `MARIADB_PASSWORD` secret).
+- MariaDB export follows fail-fast semantics: missing config, authentication errors,
   or row insert errors fail the command/workflow step.
 - When external factual connector is enabled, reports include metadata-only
   `factual_external` comparator payloads and run-level `factual_external_summary`.

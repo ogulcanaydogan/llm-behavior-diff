@@ -6,6 +6,9 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y \
     git \
     build-essential \
+    libmariadb-dev \
+    libmariadb-dev-compat \
+    pkg-config \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy project files

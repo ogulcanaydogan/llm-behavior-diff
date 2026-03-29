@@ -239,6 +239,7 @@ def run(
             "clickhouse",
             "oracle",
             "mysql",
+            "mariadb",
         ]
     ),
     default="none",
@@ -524,6 +525,38 @@ def run(
     help="MySQL table (required when --export-connector mysql)",
 )
 @click.option(
+    "--export-mdb-host",
+    type=str,
+    help="MariaDB host (required when --export-connector mariadb)",
+)
+@click.option(
+    "--export-mdb-port",
+    type=int,
+    default=3306,
+    show_default=True,
+    help="MariaDB port",
+)
+@click.option(
+    "--export-mdb-database",
+    type=str,
+    help="MariaDB database (required when --export-connector mariadb)",
+)
+@click.option(
+    "--export-mdb-user",
+    type=str,
+    help="MariaDB user (required when --export-connector mariadb)",
+)
+@click.option(
+    "--export-mdb-password",
+    type=str,
+    help="MariaDB password (optional flag; fallback: LLM_DIFF_EXPORT_MDB_PASSWORD)",
+)
+@click.option(
+    "--export-mdb-table",
+    type=str,
+    help="MariaDB table (required when --export-connector mariadb)",
+)
+@click.option(
     "--export-ms-host",
     type=str,
     help="MSSQL host (required when --export-connector mssql)",
@@ -669,6 +702,12 @@ def report(
     export_mysql_user: Optional[str],
     export_mysql_password: Optional[str],
     export_mysql_table: Optional[str],
+    export_mdb_host: Optional[str],
+    export_mdb_port: int,
+    export_mdb_database: Optional[str],
+    export_mdb_user: Optional[str],
+    export_mdb_password: Optional[str],
+    export_mdb_table: Optional[str],
     export_ms_host: Optional[str],
     export_ms_port: int,
     export_ms_database: Optional[str],
@@ -785,6 +824,12 @@ def report(
                 mysql_user=export_mysql_user,
                 mysql_password=export_mysql_password,
                 mysql_table=export_mysql_table,
+                mdb_host=export_mdb_host,
+                mdb_port=export_mdb_port,
+                mdb_database=export_mdb_database,
+                mdb_user=export_mdb_user,
+                mdb_password=export_mdb_password,
+                mdb_table=export_mdb_table,
                 ms_host=export_ms_host,
                 ms_port=export_ms_port,
                 ms_database=export_ms_database,
@@ -1673,6 +1718,13 @@ def _resolve_export_mysql_password(explicit_password: Optional[str]) -> Optional
     return env_password or None
 
 
+def _resolve_export_mariadb_password(explicit_password: Optional[str]) -> Optional[str]:
+    if explicit_password and explicit_password.strip():
+        return explicit_password.strip()
+    env_password = os.getenv("LLM_DIFF_EXPORT_MDB_PASSWORD", "").strip()
+    return env_password or None
+
+
 def _resolve_export_clickhouse_dsn(explicit_dsn: Optional[str]) -> Optional[str]:
     if explicit_dsn and explicit_dsn.strip():
         return explicit_dsn.strip()
@@ -1898,6 +1950,33 @@ def _create_mysql_connection(
     )
 
 
+def _create_mariadb_connection(
+    *,
+    host: str,
+    port: int,
+    database: str,
+    user: str,
+    password: str,
+    timeout_seconds: float,
+) -> Any:
+    import mariadb  # type: ignore[import-untyped]
+
+    connect_timeout = max(1, int(timeout_seconds))
+    kwargs: dict[str, Any] = {
+        "host": host,
+        "port": port,
+        "database": database,
+        "user": user,
+        "password": password,
+        "connect_timeout": connect_timeout,
+    }
+    try:
+        return mariadb.connect(**kwargs)
+    except TypeError:
+        kwargs.pop("connect_timeout", None)
+        return mariadb.connect(**kwargs)
+
+
 def _create_clickhouse_client(*, dsn: str, timeout_seconds: float) -> Any:
     from clickhouse_driver import Client
 
@@ -2035,6 +2114,14 @@ def _quote_mysql_identifier(identifier: str) -> str:
     return f"`{escaped}`"
 
 
+def _quote_mariadb_identifier(identifier: str) -> str:
+    normalized = identifier.strip()
+    if not normalized:
+        raise ValueError("MariaDB identifier must not be empty.")
+    escaped = normalized.replace("`", "``")
+    return f"`{escaped}`"
+
+
 def _quote_clickhouse_identifier(identifier: str) -> str:
     normalized = identifier.strip()
     if not normalized:
@@ -2125,6 +2212,12 @@ class _ExportDispatchContext:
     mysql_user: Optional[str]
     mysql_password: Optional[str]
     mysql_table: Optional[str]
+    mdb_host: Optional[str]
+    mdb_port: int
+    mdb_database: Optional[str]
+    mdb_user: Optional[str]
+    mdb_password: Optional[str]
+    mdb_table: Optional[str]
     ms_host: Optional[str]
     ms_port: int
     ms_database: Optional[str]
@@ -2242,6 +2335,7 @@ _SQL_WAREHOUSE_EXPORT_CONNECTORS = {
     "databricks",
     "postgres",
     "mysql",
+    "mariadb",
     "clickhouse",
     "mssql",
     "oracle",
@@ -2903,6 +2997,68 @@ def _prepare_mysql_export_operation(
     return _ExportPreparedOperation(operation="executemany", execute=_insert_mysql_rows)
 
 
+def _prepare_mariadb_export_operation(
+    ctx: _ExportDispatchContext,
+) -> Optional[_ExportPreparedOperation]:
+    host = _require_export_string(
+        ctx.mdb_host,
+        "export_mdb_host is required when export_connector is 'mariadb'.",
+    )
+    port = _require_positive_export_int(
+        ctx.mdb_port,
+        "export_mdb_port must be > 0 when export_connector is 'mariadb'.",
+    )
+    database = _require_export_string(
+        ctx.mdb_database,
+        "export_mdb_database is required when export_connector is 'mariadb'.",
+    )
+    user = _require_export_string(
+        ctx.mdb_user,
+        "export_mdb_user is required when export_connector is 'mariadb'.",
+    )
+    resolved_password = _resolve_export_mariadb_password(ctx.mdb_password)
+    if not resolved_password:
+        raise ValueError(
+            "MariaDB password is required via --export-mdb-password or "
+            "LLM_DIFF_EXPORT_MDB_PASSWORD."
+        )
+    table = _require_export_string(
+        ctx.mdb_table,
+        "export_mdb_table is required when export_connector is 'mariadb'.",
+    )
+    rows = _prepare_ndjson_rows_from_context(ctx, "mariadb")
+    if not rows:
+        return None
+
+    columns = list(rows[0].keys())
+    query = _build_positional_insert_query(
+        table_parts=[database, table],
+        columns=columns,
+        quote_identifier=_quote_mariadb_identifier,
+        placeholder_tokens=["?"] * len(columns),
+    )
+    values_rows = [tuple(row[column] for column in columns) for row in rows]
+
+    def _insert_mariadb_rows() -> None:
+        connection = _create_mariadb_connection(
+            host=host,
+            port=port,
+            database=database,
+            user=user,
+            password=resolved_password,
+            timeout_seconds=ctx.timeout_seconds,
+        )
+        cursor = connection.cursor()
+        try:
+            cursor.executemany(query, values_rows)
+            connection.commit()
+        finally:
+            cursor.close()
+            connection.close()
+
+    return _ExportPreparedOperation(operation="executemany", execute=_insert_mariadb_rows)
+
+
 def _prepare_clickhouse_export_operation(
     ctx: _ExportDispatchContext,
 ) -> Optional[_ExportPreparedOperation]:
@@ -3119,6 +3275,10 @@ _EXPORT_CONNECTOR_REGISTRY: dict[str, _ExportConnectorSpec] = {
         format_contract="ndjson_only",
         prepare_operation=_prepare_mysql_export_operation,
     ),
+    "mariadb": _ExportConnectorSpec(
+        format_contract="ndjson_only",
+        prepare_operation=_prepare_mariadb_export_operation,
+    ),
     "clickhouse": _ExportConnectorSpec(
         format_contract="ndjson_only",
         prepare_operation=_prepare_clickhouse_export_operation,
@@ -3201,6 +3361,12 @@ def _dispatch_report_export(
     mysql_user: Optional[str],
     mysql_password: Optional[str],
     mysql_table: Optional[str],
+    mdb_host: Optional[str],
+    mdb_port: int,
+    mdb_database: Optional[str],
+    mdb_user: Optional[str],
+    mdb_password: Optional[str],
+    mdb_table: Optional[str],
     ms_host: Optional[str],
     ms_port: int,
     ms_database: Optional[str],
@@ -3230,7 +3396,7 @@ def _dispatch_report_export(
         raise ValueError(
             f"Unsupported export connector '{connector}'. Supported: none, http, s3, gcs, "
             "bigquery, snowflake, redshift, azure_blob, databricks, postgres, clickhouse, "
-            "mssql, oracle, mysql."
+            "mssql, oracle, mysql, mariadb."
         )
 
     _validate_export_format_contract(
@@ -3294,6 +3460,12 @@ def _dispatch_report_export(
         mysql_user=mysql_user,
         mysql_password=mysql_password,
         mysql_table=mysql_table,
+        mdb_host=mdb_host,
+        mdb_port=mdb_port,
+        mdb_database=mdb_database,
+        mdb_user=mdb_user,
+        mdb_password=mdb_password,
+        mdb_table=mdb_table,
         ms_host=ms_host,
         ms_port=ms_port,
         ms_database=ms_database,

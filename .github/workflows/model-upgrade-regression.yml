@@ -83,6 +83,7 @@ on:
           - mssql
           - oracle
           - mysql
+          - mariadb
       export_connector_endpoint:
         description: "Optional export connector endpoint URL (required for export_connector=http)"
         required: false
@@ -257,6 +258,8 @@ on:
         required: false
       MYSQL_PASSWORD:
         required: false
+      MARIADB_PASSWORD:
+        required: false
 
 permissions:
   contents: read
@@ -346,6 +349,11 @@ jobs:
       EXPORT_MYSQL_DATABASE: ${{ vars.EXPORT_MYSQL_DATABASE }}
       EXPORT_MYSQL_USER: ${{ vars.EXPORT_MYSQL_USER }}
       EXPORT_MYSQL_TABLE: ${{ vars.EXPORT_MYSQL_TABLE }}
+      EXPORT_MDB_HOST: ${{ vars.EXPORT_MDB_HOST }}
+      EXPORT_MDB_PORT: ${{ vars.EXPORT_MDB_PORT }}
+      EXPORT_MDB_DATABASE: ${{ vars.EXPORT_MDB_DATABASE }}
+      EXPORT_MDB_USER: ${{ vars.EXPORT_MDB_USER }}
+      EXPORT_MDB_TABLE: ${{ vars.EXPORT_MDB_TABLE }}
       AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
       AWS_SESSION_TOKEN: ${{ secrets.AWS_SESSION_TOKEN }}
@@ -357,6 +365,7 @@ jobs:
       LLM_DIFF_EXPORT_MS_PASSWORD: ${{ secrets.MSSQL_PASSWORD }}
       LLM_DIFF_EXPORT_OR_PASSWORD: ${{ secrets.ORACLE_PASSWORD }}
       LLM_DIFF_EXPORT_MYSQL_PASSWORD: ${{ secrets.MYSQL_PASSWORD }}
+      LLM_DIFF_EXPORT_MDB_PASSWORD: ${{ secrets.MARIADB_PASSWORD }}
 
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
@@ -366,6 +375,11 @@ jobs:
         with:
           python-version: "3.11"
           cache: "pip"
+
+      - name: Install MariaDB connector system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libmariadb-dev libmariadb-dev-compat pkg-config
 
       - name: Install dependencies
         run: |
@@ -740,6 +754,33 @@ jobs:
               connector_args+=(--export-mysql-database "$EXPORT_MYSQL_DATABASE")
               connector_args+=(--export-mysql-user "$EXPORT_MYSQL_USER")
               connector_args+=(--export-mysql-table "$EXPORT_MYSQL_TABLE")
+              export_args_ndjson=("${connector_args[@]}")
+            elif [ "$EXPORT_CONNECTOR" = "mariadb" ]; then
+              if [ -z "$EXPORT_MDB_HOST" ]; then
+                echo "EXPORT_MDB_HOST repository variable is required when export_connector=mariadb."
+                exit 1
+              fi
+              if [ -z "$EXPORT_MDB_DATABASE" ]; then
+                echo "EXPORT_MDB_DATABASE repository variable is required when export_connector=mariadb."
+                exit 1
+              fi
+              if [ -z "$EXPORT_MDB_USER" ]; then
+                echo "EXPORT_MDB_USER repository variable is required when export_connector=mariadb."
+                exit 1
+              fi
+              if [ -z "$LLM_DIFF_EXPORT_MDB_PASSWORD" ]; then
+                echo "MARIADB_PASSWORD secret is required when export_connector=mariadb."
+                exit 1
+              fi
+              if [ -z "$EXPORT_MDB_TABLE" ]; then
+                echo "EXPORT_MDB_TABLE repository variable is required when export_connector=mariadb."
+                exit 1
+              fi
+              connector_args+=(--export-mdb-host "$EXPORT_MDB_HOST")
+              connector_args+=(--export-mdb-port "${EXPORT_MDB_PORT:-3306}")
+              connector_args+=(--export-mdb-database "$EXPORT_MDB_DATABASE")
+              connector_args+=(--export-mdb-user "$EXPORT_MDB_USER")
+              connector_args+=(--export-mdb-table "$EXPORT_MDB_TABLE")
               export_args_ndjson=("${connector_args[@]}")
             else
               echo "Unsupported export_connector: $EXPORT_CONNECTOR"
