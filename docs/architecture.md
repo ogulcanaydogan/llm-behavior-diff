@@ -70,9 +70,9 @@
   - `csv` and `junit` stay metric/status focused and do not include raw responses.
   - `ndjson` includes raw responses and comparator metadata per diff row.
   - table/markdown include run-level bootstrap + Wilson CI when available.
-  - optional direct connector dispatch (`--export-connector http|s3|gcs|bigquery|snowflake|redshift|azure_blob|databricks|postgres|clickhouse|mssql|oracle`) posts rendered content externally.
+  - optional direct connector dispatch (`--export-connector http|s3|gcs|bigquery|snowflake|redshift|azure_blob|databricks|postgres|clickhouse|mssql|oracle|mysql`) posts rendered content externally.
   - connector dispatch is implemented through an internal connector registry with a single execution path (`resolve config -> validate -> prepare payload -> execute with retry`) to reduce connector drift.
-  - `gcs` and `azure_blob` support all non-table formats (`azure_blob` via `DefaultAzureCredential`); `bigquery`, `snowflake`, `redshift`, `databricks`, `postgres`, `clickhouse`, `mssql`, and `oracle` are NDJSON-only.
+  - `gcs` and `azure_blob` support all non-table formats (`azure_blob` via `DefaultAzureCredential`); `bigquery`, `snowflake`, `redshift`, `databricks`, `postgres`, `clickhouse`, `mssql`, `oracle`, and `mysql` are NDJSON-only.
   - connector uploads are fail-fast when connector-specific validation/auth/upload fails.
 - `compare` renders run-to-run metric deltas and optional markdown output.
 - `compare` also computes bootstrap delta CI + permutation p-value + effect size (Cohen's h) + BH-FDR-adjusted significance from per-test outcomes when both reports include `diff_results`.
