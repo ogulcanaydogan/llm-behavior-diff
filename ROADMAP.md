@@ -118,6 +118,7 @@ The `git diff` for LLM behavior. When you upgrade a model version, know exactly 
 - [x] Provider-specific external sink V11 (`oracle`, NDJSON-only) for report command + workflow parity
 - [x] Provider-specific external sink V12 (`mysql`, NDJSON-only) for report command + workflow parity
 - [x] Provider-specific external sink V13 (`mariadb`, NDJSON-only) for report command + workflow parity
+- [x] Provider-specific external sink V14 (`mongodb`, NDJSON-only) for report command + workflow parity
 
 ## Phase 14: Benchmark Quality Pack (Completed)
 - [x] Artifact-first `benchmark` command for report JSON aggregation

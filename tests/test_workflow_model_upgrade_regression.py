@@ -135,6 +135,7 @@ def test_model_upgrade_workflow_has_factual_connector_inputs_and_export_wiring()
     assert "oracle" in options
     assert "mysql" in options
     assert "mariadb" in options
+    assert "mongodb" in options
 
     job_env = workflow["jobs"]["regression-gate"]["env"]
     assert isinstance(job_env, dict)
@@ -189,12 +190,15 @@ def test_model_upgrade_workflow_has_factual_connector_inputs_and_export_wiring()
     assert job_env.get("EXPORT_MDB_DATABASE") == "${{ vars.EXPORT_MDB_DATABASE }}"
     assert job_env.get("EXPORT_MDB_USER") == "${{ vars.EXPORT_MDB_USER }}"
     assert job_env.get("EXPORT_MDB_TABLE") == "${{ vars.EXPORT_MDB_TABLE }}"
+    assert job_env.get("EXPORT_MONGO_DATABASE") == "${{ vars.EXPORT_MONGO_DATABASE }}"
+    assert job_env.get("EXPORT_MONGO_COLLECTION") == "${{ vars.EXPORT_MONGO_COLLECTION }}"
     assert job_env.get("LLM_DIFF_EXPORT_PG_PASSWORD") == "${{ secrets.POSTGRES_PASSWORD }}"
     assert job_env.get("LLM_DIFF_EXPORT_CH_DSN") == "${{ secrets.CLICKHOUSE_DSN }}"
     assert job_env.get("LLM_DIFF_EXPORT_MS_PASSWORD") == "${{ secrets.MSSQL_PASSWORD }}"
     assert job_env.get("LLM_DIFF_EXPORT_OR_PASSWORD") == "${{ secrets.ORACLE_PASSWORD }}"
     assert job_env.get("LLM_DIFF_EXPORT_MYSQL_PASSWORD") == "${{ secrets.MYSQL_PASSWORD }}"
     assert job_env.get("LLM_DIFF_EXPORT_MDB_PASSWORD") == "${{ secrets.MARIADB_PASSWORD }}"
+    assert job_env.get("LLM_DIFF_EXPORT_MONGO_URI") == "${{ secrets.MONGODB_URI }}"
 
     steps = workflow["jobs"]["regression-gate"]["steps"]
     assert isinstance(steps, list)
@@ -283,6 +287,8 @@ def test_model_upgrade_workflow_has_factual_connector_inputs_and_export_wiring()
     assert '--export-mdb-database "$EXPORT_MDB_DATABASE"' in run_script
     assert '--export-mdb-user "$EXPORT_MDB_USER"' in run_script
     assert '--export-mdb-table "$EXPORT_MDB_TABLE"' in run_script
+    assert '--export-mongo-database "$EXPORT_MONGO_DATABASE"' in run_script
+    assert '--export-mongo-collection "$EXPORT_MONGO_COLLECTION"' in run_script
     assert "SNOWFLAKE_PASSWORD secret is required when export_connector=snowflake." in run_script
     assert "REDSHIFT_PASSWORD secret is required when export_connector=redshift." in run_script
     assert (
@@ -422,6 +428,15 @@ def test_model_upgrade_workflow_has_factual_connector_inputs_and_export_wiring()
         "EXPORT_MDB_TABLE repository variable is required when export_connector=mariadb."
         in run_script
     )
+    assert "MONGODB_URI secret is required when export_connector=mongodb." in run_script
+    assert (
+        "EXPORT_MONGO_DATABASE repository variable is required when export_connector=mongodb."
+        in run_script
+    )
+    assert (
+        "EXPORT_MONGO_COLLECTION repository variable is required when export_connector=mongodb."
+        in run_script
+    )
     assert 'elif [ "$EXPORT_CONNECTOR" = "gcs" ]; then' in run_script
     assert 'elif [ "$EXPORT_CONNECTOR" = "azure_blob" ]; then' in run_script
     assert 'elif [ "$EXPORT_CONNECTOR" = "bigquery" ]; then' in run_script
@@ -434,6 +449,7 @@ def test_model_upgrade_workflow_has_factual_connector_inputs_and_export_wiring()
     assert 'elif [ "$EXPORT_CONNECTOR" = "oracle" ]; then' in run_script
     assert 'elif [ "$EXPORT_CONNECTOR" = "mysql" ]; then' in run_script
     assert 'elif [ "$EXPORT_CONNECTOR" = "mariadb" ]; then' in run_script
+    assert 'elif [ "$EXPORT_CONNECTOR" = "mongodb" ]; then' in run_script
     assert "REDSHIFT_PASSWORD" in call_secrets
     assert "DATABRICKS_TOKEN" in call_secrets
     assert "POSTGRES_PASSWORD" in call_secrets
@@ -442,6 +458,7 @@ def test_model_upgrade_workflow_has_factual_connector_inputs_and_export_wiring()
     assert "ORACLE_PASSWORD" in call_secrets
     assert "MYSQL_PASSWORD" in call_secrets
     assert "MARIADB_PASSWORD" in call_secrets
+    assert "MONGODB_URI" in call_secrets
 
     export_step = next(
         step
