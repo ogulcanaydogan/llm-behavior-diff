@@ -165,6 +165,11 @@ llm-diff report report.json --format ndjson -o report.ndjson \
   --export-mdb-database analytics \
   --export-mdb-user svc_llm_diff \
   --export-mdb-table diff_rows
+llm-diff report report.json --format ndjson -o report.ndjson \
+  --export-connector mongodb \
+  --export-mongo-uri mongodb://svc_llm_diff:secret@mongodb.example.com:27017 \
+  --export-mongo-database analytics \
+  --export-mongo-collection diff_rows
 ```
 
 Options:
@@ -172,7 +177,7 @@ Options:
 - `report_file` (required): JSON report path
 - `--format`: `table` (default), `json`, `html`, `markdown`, `csv`, `ndjson`, `junit`
 - `--output`, `-o`: output file path (stdout when omitted)
-- `--export-connector`: `none` (default), `http`, `s3`, `gcs`, `bigquery`, `snowflake`, `redshift`, `azure_blob`, `databricks`, `postgres`, `clickhouse`, `mssql`, `oracle`, `mysql`, or `mariadb`
+- `--export-connector`: `none` (default), `http`, `s3`, `gcs`, `bigquery`, `snowflake`, `redshift`, `azure_blob`, `databricks`, `postgres`, `clickhouse`, `mssql`, `oracle`, `mysql`, `mariadb`, or `mongodb`
 - `--export-endpoint`: required when `--export-connector=http`
 - `--export-timeout`: connector timeout seconds (default `10.0`)
 - `--export-api-key`: optional explicit API key (fallback: `LLM_DIFF_EXPORT_API_KEY`)
@@ -248,6 +253,9 @@ Options:
 - `--export-mdb-user`: required when `--export-connector=mariadb`
 - `--export-mdb-password`: optional explicit MariaDB password (fallback: `LLM_DIFF_EXPORT_MDB_PASSWORD`)
 - `--export-mdb-table`: required when `--export-connector=mariadb`
+- `--export-mongo-uri`: optional explicit MongoDB URI (fallback: `LLM_DIFF_EXPORT_MONGO_URI`)
+- `--export-mongo-database`: required when `--export-connector=mongodb`
+- `--export-mongo-collection`: required when `--export-connector=mongodb`
 
 `report` table/markdown output includes run-level bootstrap + Wilson confidence intervals when
 `metadata.significance` is present.
@@ -260,7 +268,7 @@ Export format behavior:
 - `csv`: one row per `diff_result`, metric-focused columns, no raw model responses.
 - `ndjson`: one JSON object per `diff_result`, includes run context + comparator metadata + raw responses.
 - `junit`: one `<testcase>` per `diff_result`; `is_regression=true` maps to `<failure>`, others pass with status in `system-out`.
-- direct connector dispatch is opt-in and supports `http`, `s3`, `gcs`, `bigquery`, `snowflake`, `redshift`, `azure_blob`, `databricks`, `postgres`, `clickhouse`, `mssql`, `oracle`, `mysql`, and `mariadb`.
+- direct connector dispatch is opt-in and supports `http`, `s3`, `gcs`, `bigquery`, `snowflake`, `redshift`, `azure_blob`, `databricks`, `postgres`, `clickhouse`, `mssql`, `oracle`, `mysql`, `mariadb`, and `mongodb`.
 - connector dispatch requires non-`table` formats.
 - `gcs` supports all non-`table` report formats and uses ADC credentials.
 - `azure_blob` supports all non-`table` report formats and uses `DefaultAzureCredential`.
@@ -274,6 +282,7 @@ Export format behavior:
 - `oracle` dispatch requires `--format ndjson` and fails fast on insert errors.
 - `mysql` dispatch requires `--format ndjson` and fails fast on insert errors.
 - `mariadb` dispatch requires `--format ndjson` and fails fast on insert errors.
+- `mongodb` dispatch requires `--format ndjson` and fails fast on insert errors.
 - Connector dispatch runs through one shared internal reliability path (connector registry + validation + payload prep + retry execution), preserving fail-fast final behavior and connector-specific error context.
 
 ## `llm-diff compare`
