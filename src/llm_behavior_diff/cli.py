@@ -240,6 +240,7 @@ def run(
             "oracle",
             "mysql",
             "mariadb",
+            "mongodb",
         ]
     ),
     default="none",
@@ -557,6 +558,21 @@ def run(
     help="MariaDB table (required when --export-connector mariadb)",
 )
 @click.option(
+    "--export-mongo-uri",
+    type=str,
+    help="MongoDB URI (optional flag; fallback: LLM_DIFF_EXPORT_MONGO_URI)",
+)
+@click.option(
+    "--export-mongo-database",
+    type=str,
+    help="MongoDB database (required when --export-connector mongodb)",
+)
+@click.option(
+    "--export-mongo-collection",
+    type=str,
+    help="MongoDB collection (required when --export-connector mongodb)",
+)
+@click.option(
     "--export-ms-host",
     type=str,
     help="MSSQL host (required when --export-connector mssql)",
@@ -708,6 +724,9 @@ def report(
     export_mdb_user: Optional[str],
     export_mdb_password: Optional[str],
     export_mdb_table: Optional[str],
+    export_mongo_uri: Optional[str],
+    export_mongo_database: Optional[str],
+    export_mongo_collection: Optional[str],
     export_ms_host: Optional[str],
     export_ms_port: int,
     export_ms_database: Optional[str],
@@ -830,6 +849,9 @@ def report(
                 mdb_user=export_mdb_user,
                 mdb_password=export_mdb_password,
                 mdb_table=export_mdb_table,
+                mongo_uri=export_mongo_uri,
+                mongo_database=export_mongo_database,
+                mongo_collection=export_mongo_collection,
                 ms_host=export_ms_host,
                 ms_port=export_ms_port,
                 ms_database=export_ms_database,
@@ -1725,6 +1747,13 @@ def _resolve_export_mariadb_password(explicit_password: Optional[str]) -> Option
     return env_password or None
 
 
+def _resolve_export_mongo_uri(explicit_uri: Optional[str]) -> Optional[str]:
+    if explicit_uri and explicit_uri.strip():
+        return explicit_uri.strip()
+    env_uri = os.getenv("LLM_DIFF_EXPORT_MONGO_URI", "").strip()
+    return env_uri or None
+
+
 def _resolve_export_clickhouse_dsn(explicit_dsn: Optional[str]) -> Optional[str]:
     if explicit_dsn and explicit_dsn.strip():
         return explicit_dsn.strip()
@@ -1977,6 +2006,18 @@ def _create_mariadb_connection(
         return mariadb.connect(**kwargs)
 
 
+def _create_mongodb_client(*, uri: str, timeout_seconds: float) -> Any:
+    from pymongo import MongoClient  # type: ignore[import-untyped]
+
+    timeout_milliseconds = max(1, int(round(timeout_seconds * 1000)))
+    return MongoClient(
+        uri,
+        serverSelectionTimeoutMS=timeout_milliseconds,
+        connectTimeoutMS=timeout_milliseconds,
+        socketTimeoutMS=timeout_milliseconds,
+    )
+
+
 def _create_clickhouse_client(*, dsn: str, timeout_seconds: float) -> Any:
     from clickhouse_driver import Client
 
@@ -2218,6 +2259,9 @@ class _ExportDispatchContext:
     mdb_user: Optional[str]
     mdb_password: Optional[str]
     mdb_table: Optional[str]
+    mongo_uri: Optional[str]
+    mongo_database: Optional[str]
+    mongo_collection: Optional[str]
     ms_host: Optional[str]
     ms_port: int
     ms_database: Optional[str]
@@ -2340,6 +2384,14 @@ _SQL_WAREHOUSE_EXPORT_CONNECTORS = {
     "mssql",
     "oracle",
 }
+_TRANSIENT_MONGODB_ERROR_CLASSES = {
+    "ServerSelectionTimeoutError",
+    "NetworkTimeout",
+    "AutoReconnect",
+    "ConnectionFailure",
+    "ExecutionTimeout",
+    "WaitQueueTimeoutError",
+}
 
 
 def _extract_http_status_code(exc: Exception) -> Optional[int]:
@@ -2424,6 +2476,14 @@ def _is_transient_export_error(connector: str, exc: Exception) -> bool:
         if class_name in {"ServiceRequestError", "ServiceResponseError"}:
             return True
         if class_name == "HttpResponseError" and status_code in _TRANSIENT_HTTP_STATUS_CODES:
+            return True
+
+    if connector == "mongodb" and module_name.startswith("pymongo"):
+        if _is_auth_or_permission_message(message):
+            return False
+        if class_name in _TRANSIENT_MONGODB_ERROR_CLASSES:
+            return True
+        if _is_likely_transient_message(message):
             return True
 
     if connector in _SQL_WAREHOUSE_EXPORT_CONNECTORS:
@@ -3059,6 +3119,37 @@ def _prepare_mariadb_export_operation(
     return _ExportPreparedOperation(operation="executemany", execute=_insert_mariadb_rows)
 
 
+def _prepare_mongodb_export_operation(
+    ctx: _ExportDispatchContext,
+) -> Optional[_ExportPreparedOperation]:
+    resolved_uri = _resolve_export_mongo_uri(ctx.mongo_uri)
+    if not resolved_uri:
+        raise ValueError(
+            "MongoDB URI is required via --export-mongo-uri or LLM_DIFF_EXPORT_MONGO_URI."
+        )
+    database_name = _require_export_string(
+        ctx.mongo_database,
+        "export_mongo_database is required when export_connector is 'mongodb'.",
+    )
+    collection_name = _require_export_string(
+        ctx.mongo_collection,
+        "export_mongo_collection is required when export_connector is 'mongodb'.",
+    )
+    rows = _prepare_ndjson_rows_from_context(ctx, "mongodb")
+    if not rows:
+        return None
+
+    def _insert_mongodb_rows() -> None:
+        client = _create_mongodb_client(uri=resolved_uri, timeout_seconds=ctx.timeout_seconds)
+        try:
+            collection = client[database_name][collection_name]
+            collection.insert_many(rows, ordered=True)
+        finally:
+            client.close()
+
+    return _ExportPreparedOperation(operation="insert_many", execute=_insert_mongodb_rows)
+
+
 def _prepare_clickhouse_export_operation(
     ctx: _ExportDispatchContext,
 ) -> Optional[_ExportPreparedOperation]:
@@ -3279,6 +3370,10 @@ _EXPORT_CONNECTOR_REGISTRY: dict[str, _ExportConnectorSpec] = {
         format_contract="ndjson_only",
         prepare_operation=_prepare_mariadb_export_operation,
     ),
+    "mongodb": _ExportConnectorSpec(
+        format_contract="ndjson_only",
+        prepare_operation=_prepare_mongodb_export_operation,
+    ),
     "clickhouse": _ExportConnectorSpec(
         format_contract="ndjson_only",
         prepare_operation=_prepare_clickhouse_export_operation,
@@ -3367,6 +3462,9 @@ def _dispatch_report_export(
     mdb_user: Optional[str],
     mdb_password: Optional[str],
     mdb_table: Optional[str],
+    mongo_uri: Optional[str],
+    mongo_database: Optional[str],
+    mongo_collection: Optional[str],
     ms_host: Optional[str],
     ms_port: int,
     ms_database: Optional[str],
@@ -3396,7 +3494,7 @@ def _dispatch_report_export(
         raise ValueError(
             f"Unsupported export connector '{connector}'. Supported: none, http, s3, gcs, "
             "bigquery, snowflake, redshift, azure_blob, databricks, postgres, clickhouse, "
-            "mssql, oracle, mysql, mariadb."
+            "mssql, oracle, mysql, mariadb, mongodb."
         )
 
     _validate_export_format_contract(
@@ -3466,6 +3564,9 @@ def _dispatch_report_export(
         mdb_user=mdb_user,
         mdb_password=mdb_password,
         mdb_table=mdb_table,
+        mongo_uri=mongo_uri,
+        mongo_database=mongo_database,
+        mongo_collection=mongo_collection,
         ms_host=ms_host,
         ms_port=ms_port,
         ms_database=ms_database,

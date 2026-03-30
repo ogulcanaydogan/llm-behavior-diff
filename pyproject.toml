@@ -47,6 +47,7 @@ dependencies = [
     "oracledb>=2.4.0",
     "pymysql>=1.1.1",
     "mariadb>=1.1.10",
+    "pymongo>=4.8.0",
     "pyyaml>=6.0",
 ]
 

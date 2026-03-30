@@ -1041,6 +1041,7 @@ def test_export_retry_wrapper_non_transient_failure_is_immediate_for_all_connect
         "oracle",
         "mysql",
         "mariadb",
+        "mongodb",
     ]
     for connector in connectors:
         attempts = {"count": 0}
@@ -1086,6 +1087,7 @@ def test_export_retry_wrapper_non_transient_failure_is_immediate_for_all_connect
         ("oracle", "ndjson_only"),
         ("mysql", "ndjson_only"),
         ("mariadb", "ndjson_only"),
+        ("mongodb", "ndjson_only"),
     ],
 )
 def test_export_connector_registry_format_contract_matrix(
@@ -1113,6 +1115,7 @@ def test_export_connector_registry_format_contract_matrix(
         ("oracle", "ndjson", "export_or_host is required"),
         ("mysql", "ndjson", "export_mysql_host is required"),
         ("mariadb", "ndjson", "export_mdb_host is required"),
+        ("mongodb", "ndjson", "MongoDB URI is required"),
     ],
 )
 def test_report_export_connector_required_field_matrix(
@@ -1166,6 +1169,7 @@ def test_report_export_connector_required_field_matrix(
         "oracle",
         "mysql",
         "mariadb",
+        "mongodb",
     ],
 )
 def test_report_export_connector_ndjson_only_contract_matrix_rejects_csv(
@@ -4067,6 +4071,221 @@ def test_report_mariadb_export_connector_rejects_non_ndjson_format(tmp_path: Pat
             "--export-mdb-password",
             "mdb-secret",
             "--export-mdb-table",
+            "diff_rows",
+        ],
+    )
+
+    assert result.exit_code == 1
+    assert "supports only --format ndjson" in result.output
+
+
+def test_report_mongodb_export_connector_success_with_env_uri(tmp_path: Path, monkeypatch) -> None:
+    report_path = tmp_path / "report_mongodb_export.json"
+    ndjson_path = tmp_path / "report_mongodb_export.ndjson"
+    captured: dict[str, object] = {}
+    attempts = {"count": 0}
+    backoffs: list[float] = []
+
+    report = BehaviorReport(
+        model_a="gpt-4o",
+        model_b="gpt-4.5",
+        suite_name="suite_mongodb_export",
+        total_tests=1,
+        total_diffs=1,
+        regressions=1,
+        improvements=0,
+        duration_seconds=0.6,
+        diff_results=[
+            DiffResult(
+                test_id="mongo_001",
+                model_a="gpt-4o",
+                model_b="gpt-4.5",
+                response_a="a",
+                response_b="b",
+                is_semantically_same=False,
+                semantic_similarity=0.12,
+                behavior_category=BehaviorCategory.KNOWLEDGE_CHANGE,
+                is_regression=True,
+                is_improvement=False,
+                confidence=0.8,
+                explanation="regression",
+                metadata={"comparator": "semantic"},
+            )
+        ],
+    )
+    report_path.write_text(json.dumps(report.model_dump(mode="json"), indent=2), encoding="utf-8")
+
+    class FakeCollection:
+        def insert_many(self, documents: list[dict[str, object]], ordered: bool) -> None:
+            attempts["count"] += 1
+            if attempts["count"] == 1:
+                raise TimeoutError("mongodb server selection timed out")
+            captured["documents"] = documents
+            captured["ordered"] = ordered
+
+    class FakeDatabase:
+        def __getitem__(self, collection_name: str) -> FakeCollection:
+            captured["collection_name"] = collection_name
+            return FakeCollection()
+
+    class FakeClient:
+        def __getitem__(self, database_name: str) -> FakeDatabase:
+            captured["database_name"] = database_name
+            return FakeDatabase()
+
+        def close(self) -> None:
+            captured["client_closed"] = True
+
+    def fake_create_mongodb_client(*, uri: str, timeout_seconds: float):
+        captured["connect_kwargs"] = {"uri": uri, "timeout_seconds": timeout_seconds}
+        return FakeClient()
+
+    monkeypatch.setenv("LLM_DIFF_EXPORT_MONGO_URI", "mongodb://svc:secret@mongo:27017")
+    monkeypatch.setattr("llm_behavior_diff.cli._sleep_export_retry", backoffs.append)
+    monkeypatch.setattr("llm_behavior_diff.cli._create_mongodb_client", fake_create_mongodb_client)
+
+    result = CliRunner().invoke(
+        main,
+        [
+            "report",
+            str(report_path),
+            "--format",
+            "ndjson",
+            "--output",
+            str(ndjson_path),
+            "--export-connector",
+            "mongodb",
+            "--export-mongo-database",
+            "analytics",
+            "--export-mongo-collection",
+            "diff_rows",
+            "--export-timeout",
+            "6",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert "External export delivered" in result.output
+
+    connect_kwargs = captured["connect_kwargs"]
+    assert isinstance(connect_kwargs, dict)
+    assert connect_kwargs["uri"] == "mongodb://svc:secret@mongo:27017"
+    assert connect_kwargs["timeout_seconds"] == 6.0
+    assert captured["database_name"] == "analytics"
+    assert captured["collection_name"] == "diff_rows"
+    assert captured["ordered"] is True
+
+    documents = captured["documents"]
+    assert isinstance(documents, list)
+    assert len(documents) == 1
+    first_document = documents[0]
+    assert isinstance(first_document, dict)
+    assert first_document["test_id"] == "mongo_001"
+    assert first_document["metadata_json"] == '{"comparator": "semantic"}'
+
+    assert captured["client_closed"] is True
+    assert attempts["count"] == 2
+    assert backoffs == [0.55]
+
+
+def test_report_mongodb_export_connector_requires_fields(tmp_path: Path, monkeypatch) -> None:
+    report_path = tmp_path / "report_mongodb_export_missing_fields.json"
+    ndjson_path = tmp_path / "report_mongodb_export_missing_fields.ndjson"
+    report = BehaviorReport(
+        model_a="gpt-4o",
+        model_b="gpt-4.5",
+        suite_name="suite_mongodb_export",
+        total_tests=0,
+        total_diffs=0,
+        regressions=0,
+        improvements=0,
+        duration_seconds=0.0,
+    )
+    report_path.write_text(json.dumps(report.model_dump(mode="json"), indent=2), encoding="utf-8")
+    monkeypatch.delenv("LLM_DIFF_EXPORT_MONGO_URI", raising=False)
+
+    base_args = [
+        "report",
+        str(report_path),
+        "--format",
+        "ndjson",
+        "--output",
+        str(ndjson_path),
+        "--export-connector",
+        "mongodb",
+    ]
+
+    missing_uri = CliRunner().invoke(
+        main,
+        [
+            *base_args,
+            "--export-mongo-database",
+            "analytics",
+            "--export-mongo-collection",
+            "diff_rows",
+        ],
+    )
+    assert missing_uri.exit_code == 1
+    assert "MongoDB URI is required" in missing_uri.output
+
+    missing_database = CliRunner().invoke(
+        main,
+        [
+            *base_args,
+            "--export-mongo-uri",
+            "mongodb://svc:secret@mongo:27017",
+            "--export-mongo-collection",
+            "diff_rows",
+        ],
+    )
+    assert missing_database.exit_code == 1
+    assert "export_mongo_database is required" in missing_database.output
+
+    missing_collection = CliRunner().invoke(
+        main,
+        [
+            *base_args,
+            "--export-mongo-uri",
+            "mongodb://svc:secret@mongo:27017",
+            "--export-mongo-database",
+            "analytics",
+        ],
+    )
+    assert missing_collection.exit_code == 1
+    assert "export_mongo_collection is required" in missing_collection.output
+
+
+def test_report_mongodb_export_connector_rejects_non_ndjson_format(tmp_path: Path) -> None:
+    report_path = tmp_path / "report_mongodb_export_non_ndjson.json"
+    csv_path = tmp_path / "report_mongodb_export_non_ndjson.csv"
+    report = BehaviorReport(
+        model_a="gpt-4o",
+        model_b="gpt-4.5",
+        suite_name="suite_mongodb_export",
+        total_tests=0,
+        total_diffs=0,
+        regressions=0,
+        improvements=0,
+        duration_seconds=0.0,
+    )
+    report_path.write_text(json.dumps(report.model_dump(mode="json"), indent=2), encoding="utf-8")
+
+    result = CliRunner().invoke(
+        main,
+        [
+            "report",
+            str(report_path),
+            "--format",
+            "csv",
+            "--output",
+            str(csv_path),
+            "--export-connector",
+            "mongodb",
+            "--export-mongo-uri",
+            "mongodb://svc:secret@mongo:27017",
+            "--export-mongo-database",
+            "analytics",
+            "--export-mongo-collection",
             "diff_rows",
         ],
     )
