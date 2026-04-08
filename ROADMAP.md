@@ -136,6 +136,7 @@ The `git diff` for LLM behavior. When you upgrade a model version, know exactly 
 
 ## Current Status
 No open committed roadmap items at this time. GA baseline is `v1.0.0`; future exploration is tracked as non-committed candidates and promoted into new phases only when prioritized.
+Completion-lock policy is active: no new committed feature phase is opened unless explicitly prioritized. Keep-alive checks should periodically confirm master `CI` + `Docker Image` health, package availability (`llm-behavior-diff==1.0.0` on PyPI/TestPyPI), and current-state docs/roadmap consistency.
 
 ## Success Metrics
 - Can compare any two LLM versions in under 30 minutes for 100 test cases

@@ -437,6 +437,15 @@ Committed roadmap status:
 
 - No open committed roadmap items at this time.
 
+Completion lock baseline:
+
+- GA baseline is locked at `v1.0.0` unless a new committed phase is explicitly prioritized.
+- No committed feature work is added on `master` without opening a new phase.
+- Periodic keep-alive checks should remain green:
+  - `make ga-keepalive`
+  - `make ci-local`
+  - `make release-local` (when release-surface verification is needed)
+
 Future exploration candidates (not committed yet):
 
 - additional provider-specific external sinks beyond the current set (`http`, `s3`, `gcs`, `bigquery`, `snowflake`, `redshift`, `azure_blob`, `databricks`, `postgres`, `clickhouse`, `mssql`, `oracle`, `mysql`, `mariadb`, `mongodb`)

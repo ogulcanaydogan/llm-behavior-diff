@@ -372,3 +372,27 @@ llm-diff --help
   hardening windows.
 - Security drift guard tests in `tests/test_workflow_security_guard.py` and
   `tests/test_dependabot_policy_guard.py` enforce both rules.
+
+## 6) GA Completion-Lock Keep-Alive
+
+Current GA baseline is `v1.0.0` with no open committed roadmap items.
+
+Run periodic health checks (without opening a new committed phase):
+
+```bash
+make ga-keepalive
+```
+
+The keep-alive command validates:
+
+- latest `master` workflow run for `CI` is green
+- latest `master` workflow run for `Docker Image` is green
+- package version on TestPyPI and PyPI is still `1.0.0`
+- roadmap current-state marker remains present
+
+Use these additional commands when deeper parity validation is needed:
+
+```bash
+make ci-local
+make release-local
+```

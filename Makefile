@@ -1,4 +1,4 @@
-.PHONY: help venv install install-dev dev test test-cov lint format check ci-local release-local clean docs docs-serve docs-check
+.PHONY: help venv install install-dev dev test test-cov lint format check ci-local release-local ga-keepalive clean docs docs-serve docs-check
 
 PYTHON ?= python3
 VENV_DIR ?= .venv
@@ -6,6 +6,7 @@ VENV_BIN := $(VENV_DIR)/bin
 VENV_PYTHON := $(VENV_BIN)/python
 VENV_PIP := $(VENV_PYTHON) -m pip
 SMOKE_VENV_DIR ?= .venv-smoke
+GA_VERSION ?= 1.0.0
 
 help:
 	@echo "llm-behavior-diff development commands"
@@ -20,6 +21,7 @@ help:
 	@echo "  make format     - Format code with black in .venv"
 	@echo "  make ci-local   - Local CI parity (ruff, black --check, mypy, pytest, mkdocs --strict)"
 	@echo "  make release-local - Local release-check parity (build, twine check, wheel smoke)"
+	@echo "  make ga-keepalive - GA baseline health checks (master CI/Docker + PyPI/TestPyPI version)"
 	@echo "  make check      - Alias for ci-local"
 	@echo "  make clean      - Remove build artifacts"
 	@echo "  make docs       - Build docs with mkdocs --strict in .venv"
@@ -64,6 +66,19 @@ release-local:
 	$(VENV_BIN)/twine check dist/*
 	$(VENV_PYTHON) -m venv $(SMOKE_VENV_DIR)
 	. $(SMOKE_VENV_DIR)/bin/activate && pip install --upgrade pip && pip install dist/*.whl && llm-diff --help
+
+ga-keepalive: venv
+	@command -v gh >/dev/null 2>&1 || (echo "gh CLI is required for ga-keepalive" && exit 1)
+	@CI_CONCLUSION=$$(gh run list --branch master --workflow CI --limit 1 --json conclusion --jq '.[0].conclusion'); \
+	if [ "$$CI_CONCLUSION" != "success" ]; then echo "Latest master CI conclusion is '$$CI_CONCLUSION' (expected success)"; exit 1; fi
+	@DOCKER_CONCLUSION=$$(gh run list --branch master --workflow "Docker Image" --limit 1 --json conclusion --jq '.[0].conclusion'); \
+	if [ "$$DOCKER_CONCLUSION" != "success" ]; then echo "Latest master Docker Image conclusion is '$$DOCKER_CONCLUSION' (expected success)"; exit 1; fi
+	@PYPI_VERSION=$$($(VENV_PYTHON) -c "import json, urllib.request; print(json.load(urllib.request.urlopen('https://pypi.org/pypi/llm-behavior-diff/json'))['info']['version'])"); \
+	if [ "$$PYPI_VERSION" != "$(GA_VERSION)" ]; then echo "PyPI version is '$$PYPI_VERSION' (expected $(GA_VERSION))"; exit 1; fi
+	@TESTPYPI_VERSION=$$($(VENV_PYTHON) -c "import json, urllib.request; print(json.load(urllib.request.urlopen('https://test.pypi.org/pypi/llm-behavior-diff/json'))['info']['version'])"); \
+	if [ "$$TESTPYPI_VERSION" != "$(GA_VERSION)" ]; then echo "TestPyPI version is '$$TESTPYPI_VERSION' (expected $(GA_VERSION))"; exit 1; fi
+	@grep -q "No open committed roadmap items at this time." ROADMAP.md || (echo "ROADMAP current-state marker is missing" && exit 1)
+	@echo "GA keep-alive checks passed for v$(GA_VERSION)."
 
 check: ci-local
 	@echo "All checks passed!"

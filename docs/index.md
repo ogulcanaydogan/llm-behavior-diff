@@ -59,3 +59,4 @@ llm-diff benchmark report.json --format table
 - Export connectors use a shared retry-aware reliability pipeline (internal hardening, fail-fast preserved).
 - Launch kit content tracks current implementation state (not historical snapshots).
 - No open committed roadmap items currently; future items are tracked as new phases.
+- Completion lock baseline is active for GA `v1.0.0`; use `make ga-keepalive` for periodic health checks.
