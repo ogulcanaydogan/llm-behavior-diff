@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Any
 
@@ -10,6 +11,20 @@ from yaml.resolver import BaseResolver  # type: ignore[import-untyped]
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW_PATH = ROOT / ".github" / "workflows" / "model-upgrade-regression.yml"
+
+_SHA_PIN_RE = re.compile(r"^([\w./-]+)@([0-9a-f]{40})$")
+
+
+def _is_pinned_sha(uses: object, expected_action: str) -> bool:
+    """Verify a workflow ``uses:`` value pins the expected action to a 40-char SHA.
+
+    Pinning to a SHA is the supply-chain security property we guard; the specific
+    SHA is allowed to drift via Dependabot bumps without breaking this test.
+    """
+    if not isinstance(uses, str):
+        return False
+    match = _SHA_PIN_RE.match(uses)
+    return bool(match) and match.group(1) == expected_action
 
 EXPECTED_INPUT_KEYS = (
     "factual_connector",
@@ -465,9 +480,7 @@ def test_model_upgrade_workflow_has_factual_connector_inputs_and_export_wiring()
         for step in steps
         if isinstance(step, dict) and step.get("name") == "Upload suite exports"
     )
-    assert export_step.get("uses") == (
-        "actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f"
-    )
+    assert _is_pinned_sha(export_step.get("uses"), "actions/upload-artifact")
     export_with = export_step.get("with")
     assert isinstance(export_with, dict)
     assert export_with.get("path") == "artifacts/exports/"
@@ -498,9 +511,7 @@ def test_model_upgrade_workflow_has_factual_connector_inputs_and_export_wiring()
         for step in steps
         if isinstance(step, dict) and step.get("name") == "Upload benchmark summary"
     )
-    assert benchmark_upload_step.get("uses") == (
-        "actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f"
-    )
+    assert _is_pinned_sha(benchmark_upload_step.get("uses"), "actions/upload-artifact")
     benchmark_upload_with = benchmark_upload_step.get("with")
     assert isinstance(benchmark_upload_with, dict)
     assert benchmark_upload_with.get("path") == "artifacts/benchmark/"
