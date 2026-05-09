@@ -134,9 +134,18 @@ The `git diff` for LLM behavior. When you upgrade a model version, know exactly 
 - [x] Reliability V1: transient retry wrapper + attempt-context failure diagnostics (fail-fast preserved)
 - [x] Reliability V2: internal connector registry + shared validation/execution flow + contract matrix tests
 
+## Phase 16: Quantization-Diff Profile (v1.1.0 — target 2026-08-31)
+
+Specialised diff profile for quantized-vs-FP-baseline comparisons. The default thresholds tuned for full model-version upgrades produce false-positive regressions when the underlying change is purely quantization (FP16 -> INT8/FP8/AWQ/GPTQ/INT4), where minor lexical drift is expected but factual accuracy must hold.
+
+- [x] `src/llm_behavior_diff/profiles/quantization.py` with `QuantizationProfile.for_format(fmt)` covering int8, fp8, awq, gptq, int4 (9 unit tests)
+- [ ] CLI flag: `llm-diff compare --profile quantization-int8 ...`
+- [ ] Wire profile into the comparator aggregator (`aggregator.py`) so weight overrides apply
+- [ ] Quantization-specific report section in `reports/markdown.py` and `reports/html.py`
+- [ ] Example test suite under `examples/quantization-int8/` showing expected behavior on a known-quantized pair
+
 ## Current Status
-No open committed roadmap items at this time. GA baseline is `v1.0.0`; future exploration is tracked as non-committed candidates and promoted into new phases only when prioritized.
-Completion-lock policy is active: no new committed feature phase is opened unless explicitly prioritized. Keep-alive checks should periodically confirm master `CI` + `Docker Image` health, package availability (`llm-behavior-diff==1.0.0` on PyPI/TestPyPI), and current-state docs/roadmap consistency.
+GA baseline is `v1.0.0`. Phase 16 (v1.1.0 quantization-diff profile) is the next committed item; scaffold landed on master via `feat/v1.1.0-quantization-diff-profile`. Keep-alive checks continue to confirm master `CI` + `Docker Image` health, package availability (`llm-behavior-diff==1.0.0` on PyPI/TestPyPI), and current-state docs/roadmap consistency.
 
 ## Success Metrics
 - Can compare any two LLM versions in under 30 minutes for 100 test cases
