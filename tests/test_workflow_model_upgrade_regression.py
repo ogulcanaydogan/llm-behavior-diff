@@ -26,6 +26,7 @@ def _is_pinned_sha(uses: object, expected_action: str) -> bool:
     match = _SHA_PIN_RE.match(uses)
     return bool(match) and match.group(1) == expected_action
 
+
 EXPECTED_INPUT_KEYS = (
     "factual_connector",
     "factual_connector_max_results",
