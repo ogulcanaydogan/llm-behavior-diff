@@ -62,8 +62,7 @@ class QuantizationProfile:
         spec = _FORMAT_SPEC.get(fmt.lower())
         if spec is None:
             raise ValueError(
-                f"Unknown quantization format: {fmt!r}. "
-                f"Supported: {sorted(_FORMAT_SPEC)}"
+                f"Unknown quantization format: {fmt!r}. " f"Supported: {sorted(_FORMAT_SPEC)}"
             )
         return cls(
             format=fmt.lower(),
