@@ -24,7 +24,14 @@ def _find_github_actions_update(payload: dict[str, Any]) -> dict[str, Any] | Non
     return None
 
 
-def test_dependabot_github_actions_policy_is_minor_patch_only() -> None:
+def test_dependabot_github_actions_policy_is_weekly_group_rollup() -> None:
+    """The github-actions ecosystem must ship as a single weekly grouped rollup.
+
+    Policy intent: keep CI noise low (one PR per week per ecosystem) while still
+    receiving every available update through a single group rollup PR. The
+    previous "ignore-major + limit 5" policy was retired in favour of grouped
+    delivery so a single review covers the whole week.
+    """
     assert DEPENDABOT_FILE.exists(), ".github/dependabot.yml is missing."
 
     payload = yaml.safe_load(DEPENDABOT_FILE.read_text(encoding="utf-8")) or {}
@@ -38,33 +45,27 @@ def test_dependabot_github_actions_policy_is_minor_patch_only() -> None:
     assert isinstance(schedule, dict), "schedule must be a mapping."
     assert schedule.get("interval") == "weekly", "schedule interval must remain weekly."
 
-    assert update.get("open-pull-requests-limit") == 5, "open-pull-requests-limit must remain 5."
+    assert (
+        update.get("open-pull-requests-limit") == 1
+    ), "open-pull-requests-limit must remain 1 (one grouped PR per week)."
 
     commit_message = update.get("commit-message")
     assert isinstance(commit_message, dict), "commit-message must be a mapping."
-    assert (
-        commit_message.get("prefix") == "chore(ci-actions)"
-    ), "commit message prefix must remain 'chore(ci-actions)'."
+    assert commit_message.get("prefix") == "chore", "commit message prefix must remain 'chore'."
 
     labels = update.get("labels")
     assert isinstance(labels, list), "labels must be a list."
-    assert (
-        "dependencies" in labels and "github-actions" in labels
-    ), "labels must include 'dependencies' and 'github-actions'."
+    assert "dependencies" in labels, "labels must include 'dependencies'."
 
-    ignore = update.get("ignore")
-    assert isinstance(ignore, list) and ignore, "ignore list must be present and non-empty."
+    groups = update.get("groups")
+    assert isinstance(groups, dict) and groups, "groups must be present and non-empty."
+    rollup = groups.get("actions-weekly-rollup")
+    assert isinstance(rollup, dict), "'actions-weekly-rollup' group must be defined."
+    assert rollup.get("patterns") == ["*"], "rollup must include all actions via '*' pattern."
 
-    major_ignored = False
-    for entry in ignore:
-        if not isinstance(entry, dict):
-            continue
-        dependency_name = entry.get("dependency-name")
-        update_types = entry.get("update-types")
-        if dependency_name != "*":
-            continue
-        if isinstance(update_types, list) and "version-update:semver-major" in update_types:
-            major_ignored = True
-            break
-
-    assert major_ignored, "dependabot github-actions policy must ignore semver-major updates."
+    update_types = rollup.get("update-types") or []
+    assert isinstance(update_types, list), "rollup update-types must be a list."
+    for required in ("major", "minor", "patch"):
+        assert (
+            required in update_types
+        ), f"rollup must include '{required}' update-types for full coverage."
