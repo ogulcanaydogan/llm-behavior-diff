@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 from collections import Counter, defaultdict
-from typing import Any, Iterable
+from typing import TYPE_CHECKING, Any, Iterable
 
 from .comparators.base import ComparatorResult
 from .schema import BehaviorCategory, DiffResult, TestCase
+
+if TYPE_CHECKING:
+    from .profiles.quantization import QuantizationProfile
 
 _INSTRUCTION_CATEGORY_HINTS = ("format", "constraint", "structured_output", "instruction")
 
@@ -28,8 +31,14 @@ def aggregate_comparator_results(
     behavioral: ComparatorResult,
     factual: ComparatorResult,
     format_check: ComparatorResult,
+    quant_profile: "QuantizationProfile | None" = None,
 ) -> dict[str, Any]:
     """Aggregate comparator outputs into final diff classification."""
+    factual_regression_threshold = (
+        quant_profile.factual_regression_threshold if quant_profile is not None else -0.20
+    )
+    format_strict = quant_profile.format_strict if quant_profile is not None else True
+
     semantic_decision = "semantic_same" if is_semantically_same else "semantic_diff"
     semantic = ComparatorResult(
         score_a=semantic_similarity,
@@ -45,12 +54,17 @@ def aggregate_comparator_results(
         ),
     )
 
-    comparators = {
+    comparators: dict[str, Any] = {
         "semantic": semantic.to_dict(),
         "behavioral": behavioral.to_dict(),
         "factual": factual.to_dict(),
         "format": format_check.to_dict(),
     }
+    if quant_profile is not None and quant_profile.weight_overrides:
+        comparators["_quantization"] = {
+            "format": quant_profile.format,
+            "weight_overrides": dict(quant_profile.weight_overrides),
+        }
 
     if is_semantically_same:
         return {
@@ -96,7 +110,7 @@ def aggregate_comparator_results(
                 "explanation": factual.reason,
                 "comparators": comparators,
             }
-        if factual.delta <= -0.20:
+        if factual.delta <= factual_regression_threshold:
             return {
                 "behavior_category": BehaviorCategory.KNOWLEDGE_CHANGE,
                 "is_regression": True,
@@ -119,7 +133,7 @@ def aggregate_comparator_results(
         if format_check.decision == "format_change":
             return {
                 "behavior_category": BehaviorCategory.FORMAT_CHANGE,
-                "is_regression": True,
+                "is_regression": format_strict,
                 "is_improvement": False,
                 "confidence": format_check.confidence,
                 "explanation": format_check.reason,

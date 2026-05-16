@@ -216,6 +216,7 @@ def run(
     }
     if quant_profile is not None:
         runner_kwargs["semantic_threshold"] = quant_profile.semantic_threshold
+        runner_kwargs["quant_profile"] = quant_profile
     try:
         runner = BehaviorDiffRunner(**runner_kwargs)
         report_obj = asyncio.run(runner.run_suite(suite_obj))

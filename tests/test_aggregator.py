@@ -5,6 +5,7 @@ from llm_behavior_diff.aggregator import (
     summarize_comparator_breakdown,
 )
 from llm_behavior_diff.comparators.base import ComparatorResult
+from llm_behavior_diff.profiles.quantization import QuantizationProfile
 from llm_behavior_diff.schema import BehaviorCategory, DiffResult
 from llm_behavior_diff.schema import TestCase as SuiteCase
 
@@ -156,3 +157,62 @@ def test_comparator_summary_counts_metadata_breakdown() -> None:
     assert summary["behavioral"]["regression"] == 1
     assert summary["factual"]["knowledge_change"] == 1
     assert summary["judge"]["judge_regression"] == 1
+
+
+def test_aggregator_quantization_format_change_not_regression() -> None:
+    profile = QuantizationProfile.for_format("fp8")
+    assert profile.format_strict is False
+
+    aggregated = aggregate_comparator_results(
+        test_case=_case(),
+        semantic_similarity=0.3,
+        semantic_threshold=0.94,
+        is_semantically_same=False,
+        behavioral=_result(applies=True, decision="neutral", delta=0.0),
+        factual=_result(applies=False, decision="neutral", delta=0.0),
+        format_check=_result(applies=True, decision="format_change", delta=-1.0),
+        quant_profile=profile,
+    )
+
+    assert aggregated["behavior_category"] == BehaviorCategory.FORMAT_CHANGE
+    assert aggregated["is_regression"] is False
+
+
+def test_aggregator_quantization_factual_regression_threshold() -> None:
+    profile = QuantizationProfile.for_format("int8")
+    assert profile.factual_regression_threshold == -0.05
+
+    aggregated = aggregate_comparator_results(
+        test_case=_case(),
+        semantic_similarity=0.3,
+        semantic_threshold=0.92,
+        is_semantically_same=False,
+        behavioral=_result(applies=True, decision="neutral", delta=0.0),
+        factual=_result(applies=True, decision="knowledge_change", delta=-0.07),
+        format_check=_result(applies=False, decision="neutral", delta=0.0),
+        quant_profile=profile,
+    )
+
+    assert aggregated["behavior_category"] == BehaviorCategory.KNOWLEDGE_CHANGE
+    assert aggregated["is_regression"] is True
+
+
+def test_aggregator_quantization_weight_overrides_in_metadata() -> None:
+    profile = QuantizationProfile.for_format("int8")
+
+    aggregated = aggregate_comparator_results(
+        test_case=_case(),
+        semantic_similarity=0.3,
+        semantic_threshold=0.92,
+        is_semantically_same=False,
+        behavioral=_result(applies=True, decision="neutral", delta=0.0),
+        factual=_result(applies=False, decision="neutral", delta=0.0),
+        format_check=_result(applies=False, decision="neutral", delta=0.0),
+        quant_profile=profile,
+    )
+
+    quant_meta = aggregated["comparators"].get("_quantization")
+    assert quant_meta is not None
+    assert quant_meta["format"] == "int8"
+    assert quant_meta["weight_overrides"]["factual"] == 1.5
+    assert quant_meta["weight_overrides"]["semantic"] == 0.8
