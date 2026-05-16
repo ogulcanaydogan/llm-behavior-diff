@@ -104,23 +104,23 @@ jobs:
 
       - name: Publish to TestPyPI (OIDC)
         if: ${{ inputs.target == 'testpypi' && env.TEST_PYPI_API_TOKEN == '' }}
-        uses: pypa/gh-action-pypi-publish@ed0c53931b1dc9bd32cbe73a98c7f6766f8a527e
+        uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b
         with:
           repository-url: https://test.pypi.org/legacy/
 
       - name: Publish to TestPyPI (token fallback)
         if: ${{ inputs.target == 'testpypi' && env.TEST_PYPI_API_TOKEN != '' }}
-        uses: pypa/gh-action-pypi-publish@ed0c53931b1dc9bd32cbe73a98c7f6766f8a527e
+        uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b
         with:
           repository-url: https://test.pypi.org/legacy/
           password: ${{ env.TEST_PYPI_API_TOKEN }}
 
       - name: Publish to PyPI (OIDC)
         if: ${{ inputs.target == 'pypi' && env.PYPI_API_TOKEN == '' }}
-        uses: pypa/gh-action-pypi-publish@ed0c53931b1dc9bd32cbe73a98c7f6766f8a527e
+        uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b
 
       - name: Publish to PyPI (token fallback)
         if: ${{ inputs.target == 'pypi' && env.PYPI_API_TOKEN != '' }}
-        uses: pypa/gh-action-pypi-publish@ed0c53931b1dc9bd32cbe73a98c7f6766f8a527e
+        uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b
         with:
           password: ${{ env.PYPI_API_TOKEN }}
