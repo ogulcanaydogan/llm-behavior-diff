@@ -34,7 +34,11 @@ def test_run_quantization_fp8_wires_threshold(tmp_path: Path, monkeypatch) -> No
 
     class FakeRunner:
         def __init__(
-            self, model_a: str, model_b: str, semantic_threshold: float = 0.85, **kwargs
+            self,
+            model_a: str,
+            model_b: str,
+            semantic_threshold: float = 0.85,
+            **kwargs,
         ) -> None:
             self.model_a = model_a
             self.model_b = model_b
@@ -84,7 +88,11 @@ def test_run_quantization_int8_wires_threshold(tmp_path: Path, monkeypatch) -> N
 
     class FakeRunner:
         def __init__(
-            self, model_a: str, model_b: str, semantic_threshold: float = 0.85, **kwargs
+            self,
+            model_a: str,
+            model_b: str,
+            semantic_threshold: float = 0.85,
+            **kwargs,
         ) -> None:
             self.model_a = model_a
             self.model_b = model_b
@@ -130,7 +138,11 @@ def test_run_without_quantization_uses_default_threshold(tmp_path: Path, monkeyp
 
     class FakeRunner:
         def __init__(
-            self, model_a: str, model_b: str, semantic_threshold: float = 0.85, **kwargs
+            self,
+            model_a: str,
+            model_b: str,
+            semantic_threshold: float = 0.85,
+            **kwargs,
         ) -> None:
             self.model_a = model_a
             self.model_b = model_b
