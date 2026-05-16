@@ -33,7 +33,9 @@ def test_run_quantization_fp8_wires_threshold(tmp_path: Path, monkeypatch) -> No
     captured: dict[str, object] = {}
 
     class FakeRunner:
-        def __init__(self, model_a: str, model_b: str, semantic_threshold: float = 0.85, **kwargs) -> None:
+        def __init__(
+            self, model_a: str, model_b: str, semantic_threshold: float = 0.85, **kwargs
+        ) -> None:
             self.model_a = model_a
             self.model_b = model_b
             captured["semantic_threshold"] = semantic_threshold
@@ -52,11 +54,16 @@ def test_run_quantization_fp8_wires_threshold(tmp_path: Path, monkeypatch) -> No
         main,
         [
             "run",
-            "--model-a", "model-fp16",
-            "--model-b", "model-fp8",
-            "--suite", str(suite_path),
-            "--output", str(output_path),
-            "--quantization", "fp8",
+            "--model-a",
+            "model-fp16",
+            "--model-b",
+            "model-fp8",
+            "--suite",
+            str(suite_path),
+            "--output",
+            str(output_path),
+            "--quantization",
+            "fp8",
         ],
     )
 
@@ -76,7 +83,9 @@ def test_run_quantization_int8_wires_threshold(tmp_path: Path, monkeypatch) -> N
     captured: dict[str, object] = {}
 
     class FakeRunner:
-        def __init__(self, model_a: str, model_b: str, semantic_threshold: float = 0.85, **kwargs) -> None:
+        def __init__(
+            self, model_a: str, model_b: str, semantic_threshold: float = 0.85, **kwargs
+        ) -> None:
             self.model_a = model_a
             self.model_b = model_b
             captured["semantic_threshold"] = semantic_threshold
@@ -95,11 +104,16 @@ def test_run_quantization_int8_wires_threshold(tmp_path: Path, monkeypatch) -> N
         main,
         [
             "run",
-            "--model-a", "model-fp16",
-            "--model-b", "model-int8",
-            "--suite", str(suite_path),
-            "--output", str(output_path),
-            "--quantization", "int8",
+            "--model-a",
+            "model-fp16",
+            "--model-b",
+            "model-int8",
+            "--suite",
+            str(suite_path),
+            "--output",
+            str(output_path),
+            "--quantization",
+            "int8",
         ],
     )
 
@@ -115,7 +129,9 @@ def test_run_without_quantization_uses_default_threshold(tmp_path: Path, monkeyp
     captured: dict[str, object] = {}
 
     class FakeRunner:
-        def __init__(self, model_a: str, model_b: str, semantic_threshold: float = 0.85, **kwargs) -> None:
+        def __init__(
+            self, model_a: str, model_b: str, semantic_threshold: float = 0.85, **kwargs
+        ) -> None:
             self.model_a = model_a
             self.model_b = model_b
             captured["semantic_threshold"] = semantic_threshold
@@ -134,10 +150,14 @@ def test_run_without_quantization_uses_default_threshold(tmp_path: Path, monkeyp
         main,
         [
             "run",
-            "--model-a", "gpt-4o",
-            "--model-b", "gpt-4.5",
-            "--suite", str(suite_path),
-            "--output", str(output_path),
+            "--model-a",
+            "gpt-4o",
+            "--model-b",
+            "gpt-4.5",
+            "--suite",
+            str(suite_path),
+            "--output",
+            str(output_path),
         ],
     )
 
