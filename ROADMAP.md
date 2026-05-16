@@ -139,7 +139,7 @@ The `git diff` for LLM behavior. When you upgrade a model version, know exactly 
 Specialised diff profile for quantized-vs-FP-baseline comparisons. The default thresholds tuned for full model-version upgrades produce false-positive regressions when the underlying change is purely quantization (FP16 -> INT8/FP8/AWQ/GPTQ/INT4), where minor lexical drift is expected but factual accuracy must hold.
 
 - [x] `src/llm_behavior_diff/profiles/quantization.py` with `QuantizationProfile.for_format(fmt)` covering int8, fp8, awq, gptq, int4 (9 unit tests)
-- [ ] CLI flag: `llm-diff compare --profile quantization-int8 ...`
+- [x] CLI flag: `llm-diff run --quantization <fmt>` routes through `QuantizationProfile`, sets calibrated `semantic_threshold`, and embeds profile dict in `report.metadata`
 - [ ] Wire profile into the comparator aggregator (`aggregator.py`) so weight overrides apply
 - [ ] Quantization-specific report section in `reports/markdown.py` and `reports/html.py`
 - [ ] Example test suite under `examples/quantization-int8/` showing expected behavior on a known-quantized pair
