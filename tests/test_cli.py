@@ -105,6 +105,7 @@ test_cases:
             max_retries: int = 3,
             rate_limit_rps: float = 0.0,
             pricing_file: str | None = None,
+            semantic_threshold: float = 0.85,
         ) -> None:
             self.model_a = model_a
             self.model_b = model_b
@@ -209,6 +210,7 @@ test_cases:
             max_retries: int = 3,
             rate_limit_rps: float = 0.0,
             pricing_file: str | None = None,
+            semantic_threshold: float = 0.85,
         ) -> None:
             captured["model_a"] = model_a
             captured["model_b"] = model_b
@@ -216,7 +218,7 @@ test_cases:
             captured["factual_connector"] = factual_connector
             captured["factual_connector_timeout"] = factual_connector_timeout
             captured["factual_connector_max_results"] = factual_connector_max_results
-            del max_workers, continue_on_error, max_retries, rate_limit_rps, pricing_file
+            del max_workers, continue_on_error, max_retries, rate_limit_rps, pricing_file, semantic_threshold
 
         async def run_suite(self, suite_obj):
             return BehaviorReport(
