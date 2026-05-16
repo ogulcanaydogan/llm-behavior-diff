@@ -18,7 +18,10 @@ import time
 from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Iterable, Sequence, Tuple
+from typing import TYPE_CHECKING, Any, Iterable, Sequence, Tuple
+
+if TYPE_CHECKING:
+    from .profiles.quantization import QuantizationProfile
 
 import yaml  # type: ignore[import-untyped]
 from pydantic import ValidationError
@@ -503,6 +506,7 @@ class BehaviorDiffRunner:
         external_factual_comparator: ExternalFactualComparator | None = None,
         judge_adapter: ModelAdapter | None = None,
         judge_comparator: JudgeComparator | None = None,
+        quant_profile: "QuantizationProfile | None" = None,
     ) -> None:
         if max_workers < 1:
             raise ValueError("max_workers must be >= 1")
@@ -538,8 +542,21 @@ class BehaviorDiffRunner:
             self.semantic_threshold = float(raw_threshold)
         except (TypeError, ValueError):
             self.semantic_threshold = float(semantic_threshold)
-        self.behavioral_comparator = behavioral_comparator or BehavioralComparator()
-        self.factual_comparator = factual_comparator or FactualComparator()
+        self.quant_profile = quant_profile
+        _behavioral_threshold = (
+            abs(quant_profile.behavioral_regression_threshold)
+            if quant_profile is not None
+            else 0.20
+        )
+        _factual_threshold = (
+            abs(quant_profile.factual_regression_threshold) if quant_profile is not None else 0.20
+        )
+        self.behavioral_comparator = behavioral_comparator or BehavioralComparator(
+            threshold=_behavioral_threshold
+        )
+        self.factual_comparator = factual_comparator or FactualComparator(
+            threshold=_factual_threshold
+        )
         connector = create_factual_connector(self.factual_connector_name)
         self.external_factual_enabled = connector is not None
         self.external_factual_comparator = external_factual_comparator
@@ -688,6 +705,7 @@ class BehaviorDiffRunner:
             behavioral=behavioral_result,
             factual=factual_result,
             format_check=format_result,
+            quant_profile=self.quant_profile,
         )
         diff_metadata: dict[str, Any] = {
             "model_a": metadata_a,
