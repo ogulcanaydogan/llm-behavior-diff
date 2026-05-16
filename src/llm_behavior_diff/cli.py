@@ -140,6 +140,15 @@ def main() -> None:
     show_default=True,
     help="Max external factual evidence results per test",
 )
+@click.option(
+    "--quantization",
+    type=click.Choice(["int8", "fp8", "awq", "gptq", "int4"]),
+    default=None,
+    help=(
+        "Quantization format for calibrated diff thresholds (v1.1.0). "
+        "Raises semantic_threshold and relaxes format checks for the given format."
+    ),
+)
 def run(
     model_a: str,
     model_b: str,
@@ -155,6 +164,7 @@ def run(
     factual_connector: str,
     factual_connector_timeout: float,
     factual_connector_max_results: int,
+    quantization: Optional[str],
 ) -> None:
     """
     Run behavioral diff tests comparing two model versions.
@@ -162,9 +172,21 @@ def run(
     Example:
         llm-diff run --model-a gpt-4o --model-b gpt-4.5 --suite tests.yaml
     """
+    from .profiles.quantization import QuantizationProfile
+
     console.print("[bold cyan]llm-behavior-diff[/bold cyan]")
     console.print(f"Comparing {model_a} vs {model_b}")
     console.print(f"Test suite: {suite}")
+
+    quant_profile: Optional[QuantizationProfile] = None
+    semantic_threshold = 0.85
+    if quantization is not None:
+        quant_profile = QuantizationProfile.for_format(quantization)
+        semantic_threshold = quant_profile.semantic_threshold
+        console.print(
+            f"[cyan]Quantization profile:[/cyan] {quantization} "
+            f"(semantic_threshold={semantic_threshold})"
+        )
 
     try:
         suite_obj = load_test_suite(suite)
@@ -194,11 +216,15 @@ def run(
             factual_connector=factual_connector,
             factual_connector_timeout=factual_connector_timeout,
             factual_connector_max_results=factual_connector_max_results,
+            semantic_threshold=semantic_threshold,
         )
         report_obj = asyncio.run(runner.run_suite(suite_obj))
     except Exception as exc:
         console.print(f"[red]Run failed: {exc}[/red]")
         raise click.Abort() from exc
+
+    if quant_profile is not None:
+        report_obj.metadata["quantization_profile"] = quant_profile.to_dict()
 
     Path(output).write_text(
         json.dumps(report_obj.model_dump(mode="json"), indent=2),
