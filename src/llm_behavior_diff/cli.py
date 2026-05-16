@@ -179,13 +179,11 @@ def run(
     console.print(f"Test suite: {suite}")
 
     quant_profile: Optional[QuantizationProfile] = None
-    semantic_threshold = 0.85
     if quantization is not None:
         quant_profile = QuantizationProfile.for_format(quantization)
-        semantic_threshold = quant_profile.semantic_threshold
         console.print(
             f"[cyan]Quantization profile:[/cyan] {quantization} "
-            f"(semantic_threshold={semantic_threshold})"
+            f"(semantic_threshold={quant_profile.semantic_threshold})"
         )
 
     try:
@@ -203,21 +201,23 @@ def run(
         return
 
     console.print(f"[yellow]Running tests with {max_workers} workers...[/yellow]")
+    runner_kwargs: dict[str, Any] = {
+        "model_a": model_a,
+        "model_b": model_b,
+        "max_workers": max_workers,
+        "continue_on_error": continue_on_error,
+        "max_retries": max_retries,
+        "rate_limit_rps": rate_limit_rps,
+        "pricing_file": pricing_file,
+        "judge_model": judge_model,
+        "factual_connector": factual_connector,
+        "factual_connector_timeout": factual_connector_timeout,
+        "factual_connector_max_results": factual_connector_max_results,
+    }
+    if quant_profile is not None:
+        runner_kwargs["semantic_threshold"] = quant_profile.semantic_threshold
     try:
-        runner = BehaviorDiffRunner(
-            model_a=model_a,
-            model_b=model_b,
-            max_workers=max_workers,
-            continue_on_error=continue_on_error,
-            max_retries=max_retries,
-            rate_limit_rps=rate_limit_rps,
-            pricing_file=pricing_file,
-            judge_model=judge_model,
-            factual_connector=factual_connector,
-            factual_connector_timeout=factual_connector_timeout,
-            factual_connector_max_results=factual_connector_max_results,
-            semantic_threshold=semantic_threshold,
-        )
+        runner = BehaviorDiffRunner(**runner_kwargs)
         report_obj = asyncio.run(runner.run_suite(suite_obj))
     except Exception as exc:
         console.print(f"[red]Run failed: {exc}[/red]")
