@@ -1,0 +1,108 @@
+name: quantization_int8_example
+description: |
+  Example behavioral diff suite for an INT8-quantized model vs its FP16
+  baseline. Designed to be run with --quantization int8 so the calibrated
+  profile (semantic_threshold=0.92, factual_regression_threshold=-0.05,
+  format_strict=False, factual weight 1.5x) is in effect.
+
+  The suite covers four scenarios that quantization most commonly affects:
+    1. Factual recall: must hold after quantization (strict factual threshold)
+    2. Format compliance: minor drift expected (format_strict=False)
+    3. Behavioral coverage: expected to remain stable
+    4. Semantic paraphrase: small lexical drift is normal at INT8
+
+version: "1.0"
+metadata:
+  created: 2026-05-17
+  author: llm-behavior-diff
+  domain: quantization
+  intended_profile: int8
+
+test_cases:
+  - id: q8_factual_001
+    prompt: "What is the chemical formula of water?"
+    category: factual_knowledge
+    tags: [quantization, factual]
+    expected_behavior: Must answer H2O. Quantization must not change basic factual recall.
+    max_tokens: 64
+    temperature: 0.0
+    metadata:
+      difficulty: easy
+      sensitive_to_quantization: low
+
+  - id: q8_factual_002
+    prompt: "List the first three planets from the Sun in order."
+    category: factual_knowledge
+    tags: [quantization, factual, ordering]
+    expected_behavior: Mercury, Venus, Earth in that order. Order errors are factual regressions.
+    max_tokens: 96
+    temperature: 0.0
+    metadata:
+      difficulty: easy
+      sensitive_to_quantization: low
+
+  - id: q8_history_001
+    prompt: "In which year did the Berlin Wall fall?"
+    category: history
+    tags: [quantization, factual, date]
+    expected_behavior: 1989. Numeric facts are a stress test for factual stability under INT8.
+    max_tokens: 64
+    temperature: 0.0
+    metadata:
+      difficulty: easy
+      sensitive_to_quantization: medium
+
+  - id: q8_format_001
+    prompt: 'Return a JSON object with keys "city" and "country" for Paris.'
+    category: structured_output
+    tags: [quantization, format, json]
+    expected_behavior: Valid JSON with both keys. Minor whitespace or key-order drift is acceptable at INT8.
+    max_tokens: 96
+    temperature: 0.0
+    metadata:
+      difficulty: easy
+      sensitive_to_quantization: medium
+
+  - id: q8_format_002
+    prompt: "Reply yes or no only. Is the Eiffel Tower in Paris?"
+    category: instruction_following
+    tags: [quantization, format, yes_no]
+    expected_behavior: Should respond with yes or no. Trailing punctuation drift is tolerated under int8.
+    max_tokens: 16
+    temperature: 0.0
+    metadata:
+      difficulty: easy
+      sensitive_to_quantization: low
+
+  - id: q8_reasoning_001
+    prompt: "If a train travels 60 km in 45 minutes, what is its speed in km/h?"
+    category: reasoning
+    tags: [quantization, reasoning, arithmetic]
+    expected_behavior: 80 km/h. Arithmetic correctness must hold under int8.
+    max_tokens: 256
+    temperature: 0.0
+    metadata:
+      difficulty: medium
+      sensitive_to_quantization: high
+
+  - id: q8_paraphrase_001
+    prompt: "Explain what a CPU does in one sentence."
+    category: explanation
+    tags: [quantization, semantic_paraphrase]
+    expected_behavior: A one-sentence definition of a CPU. Phrasing drift is expected at INT8 and should be tolerated by the semantic comparator.
+    max_tokens: 128
+    temperature: 0.0
+    metadata:
+      difficulty: easy
+      sensitive_to_quantization: medium
+
+  - id: q8_paraphrase_002
+    prompt: "Summarize the role of photosynthesis in plants in two sentences."
+    category: explanation
+    tags: [quantization, semantic_paraphrase]
+    expected_behavior: A two-sentence summary of photosynthesis. Wording variation is normal; meaning must be preserved.
+    max_tokens: 256
+    temperature: 0.0
+    metadata:
+      difficulty: medium
+      sensitive_to_quantization: medium

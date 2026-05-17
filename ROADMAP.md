@@ -142,7 +142,7 @@ Specialised diff profile for quantized-vs-FP-baseline comparisons. The default t
 - [x] CLI flag: `llm-diff run --quantization <fmt>` routes through `QuantizationProfile`, sets calibrated `semantic_threshold`, and embeds profile dict in `report.metadata`
 - [x] Wire profile into the comparator aggregator (`aggregator.py`) so weight overrides apply
 - [x] Quantization-specific report section in markdown and HTML output (rendered from `report.metadata["quantization_profile"]`; formatters live inline in `src/llm_behavior_diff/cli.py`)
-- [ ] Example test suite under `examples/quantization-int8/` showing expected behavior on a known-quantized pair
+- [x] Example test suite under `examples/quantization-int8/` showing expected behavior on a known-quantized pair (8 test cases covering factual recall, format compliance, reasoning, and semantic paraphrase scenarios)
 
 ## Current Status
 GA baseline is `v1.0.0`. Phase 16 (v1.1.0 quantization-diff profile) is the next committed item; scaffold landed on master via `feat/v1.1.0-quantization-diff-profile`. Keep-alive checks continue to confirm master `CI` + `Docker Image` health, package availability (`llm-behavior-diff==1.0.0` on PyPI/TestPyPI), and current-state docs/roadmap consistency.
