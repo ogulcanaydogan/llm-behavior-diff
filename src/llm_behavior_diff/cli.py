@@ -3622,6 +3622,33 @@ def _dispatch_report_export(
     )
 
 
+def _format_quantization_markdown(profile: dict[str, Any]) -> str:
+    """Return a ## Quantization Profile section string, or empty string if profile is invalid."""
+    fmt = profile.get("format")
+    if not isinstance(fmt, str):
+        return ""
+    semantic = profile.get("semantic_threshold")
+    behavioral = profile.get("behavioral_regression_threshold")
+    factual = profile.get("factual_regression_threshold")
+    fmt_strict = profile.get("format_strict")
+    weight_overrides: dict[str, float] = profile.get("weight_overrides") or {}
+
+    lines = [f"- **Format**: {fmt}"]
+    if isinstance(semantic, (int, float)):
+        lines.append(f"- **Semantic Threshold**: {float(semantic):.2f}")
+    if isinstance(behavioral, (int, float)):
+        lines.append(f"- **Behavioral Regression Threshold**: {float(behavioral):+.2f}")
+    if isinstance(factual, (int, float)):
+        lines.append(f"- **Factual Regression Threshold**: {float(factual):+.2f}")
+    if fmt_strict is not None:
+        lines.append(f"- **Format Strict**: {fmt_strict}")
+    if isinstance(weight_overrides, dict) and weight_overrides:
+        overrides_str = ", ".join(f"{k}={v}" for k, v in sorted(weight_overrides.items()))
+        lines.append(f"- **Weight Overrides**: {overrides_str}")
+
+    return "\n## Quantization Profile\n" + "\n".join(lines) + "\n"
+
+
 def _format_markdown(report: BehaviorReport) -> str:
     """Format report as markdown."""
     processed_tests = report.metadata.get("processed_tests")
@@ -3663,6 +3690,13 @@ def _format_markdown(report: BehaviorReport) -> str:
     if optional_lines:
         optional_summary = "\n" + "\n".join(optional_lines)
 
+    quant_profile_raw = report.metadata.get("quantization_profile")
+    quant_section = (
+        _format_quantization_markdown(quant_profile_raw)
+        if isinstance(quant_profile_raw, dict)
+        else ""
+    )
+
     md = f"""# Behavioral Diff Report
 
 ## Summary
@@ -3676,7 +3710,7 @@ def _format_markdown(report: BehaviorReport) -> str:
 ## Details
 Generated: {report.timestamp.isoformat()}
 Duration: {report.duration_seconds:.1f}s
-"""
+{quant_section}"""
     return md
 
 
@@ -3713,6 +3747,7 @@ def _format_html(report: BehaviorReport) -> str:
     pricing_source = report.metadata.get("pricing_source")
     estimated_cost = _extract_total_estimated_cost(report)
     significance = _extract_run_significance(report)
+    quant_profile_raw = report.metadata.get("quantization_profile")
 
     significance_summary = "N/A"
     if significance is not None:
@@ -4091,6 +4126,35 @@ renderTable();
 </script>
 """.replace("__DIFF_DATA__", diff_json)
 
+    quant_section_html = ""
+    if isinstance(quant_profile_raw, dict):
+        qfmt = quant_profile_raw.get("format", "")
+        qsem = quant_profile_raw.get("semantic_threshold")
+        qbeh = quant_profile_raw.get("behavioral_regression_threshold")
+        qfac = quant_profile_raw.get("factual_regression_threshold")
+        qstrict = quant_profile_raw.get("format_strict")
+        qwo: dict[str, float] = quant_profile_raw.get("weight_overrides") or {}
+        wo_str = ", ".join(f"{k}={v}" for k, v in sorted(qwo.items())) if qwo else "none"
+        quant_section_html = (
+            '\n    <section class="section" data-test="quant-profile-section">\n'
+            "      <h2>Quantization Profile</h2>\n"
+            '      <div class="cards">\n'
+            f"        <div class='card'><div class='label'>Format</div>"
+            f"<div class='value'>{html_escape(str(qfmt))}</div></div>\n"
+            f"        <div class='card'><div class='label'>Semantic Threshold</div>"
+            f"<div class='value'>{f'{float(qsem):.2f}' if isinstance(qsem, (int, float)) else 'N/A'}</div></div>\n"
+            f"        <div class='card'><div class='label'>Behavioral Regression Threshold</div>"
+            f"<div class='value'>{f'{float(qbeh):+.2f}' if isinstance(qbeh, (int, float)) else 'N/A'}</div></div>\n"
+            f"        <div class='card'><div class='label'>Factual Regression Threshold</div>"
+            f"<div class='value'>{f'{float(qfac):+.2f}' if isinstance(qfac, (int, float)) else 'N/A'}</div></div>\n"
+            f"        <div class='card'><div class='label'>Format Strict</div>"
+            f"<div class='value'>{'Yes' if qstrict else 'No'}</div></div>\n"
+            f"        <div class='card'><div class='label'>Weight Overrides</div>"
+            f"<div class='value'>{html_escape(wo_str)}</div></div>\n"
+            "      </div>\n"
+            "    </section>"
+        )
+
     return f"""<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -4131,7 +4195,7 @@ renderTable();
         <div class="card"><div class="label">Improvement CI (95%)</div><div class="value">{html_escape(improvement_ci) if improvement_ci else "N/A"}</div></div>
       </div>
     </section>
-
+{quant_section_html}
     <section class="section">
       <h2>Category Breakdown</h2>
       <div class="split">

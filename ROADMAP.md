@@ -141,7 +141,7 @@ Specialised diff profile for quantized-vs-FP-baseline comparisons. The default t
 - [x] `src/llm_behavior_diff/profiles/quantization.py` with `QuantizationProfile.for_format(fmt)` covering int8, fp8, awq, gptq, int4 (9 unit tests)
 - [x] CLI flag: `llm-diff run --quantization <fmt>` routes through `QuantizationProfile`, sets calibrated `semantic_threshold`, and embeds profile dict in `report.metadata`
 - [x] Wire profile into the comparator aggregator (`aggregator.py`) so weight overrides apply
-- [ ] Quantization-specific report section in `reports/markdown.py` and `reports/html.py`
+- [x] Quantization-specific report section in markdown and HTML output (rendered from `report.metadata["quantization_profile"]`; formatters live inline in `src/llm_behavior_diff/cli.py`)
 - [ ] Example test suite under `examples/quantization-int8/` showing expected behavior on a known-quantized pair
 
 ## Current Status
